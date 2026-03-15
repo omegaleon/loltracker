@@ -1,0 +1,14 @@
+api.key
+.env
+*.db
+data/
+__pycache__/
+.opencode/
+*.png
+venv/
+.git/
+.gitignore
+.dockerignore
+PLAN.md
+docker-compose.yml
+tracker-unraid.xml

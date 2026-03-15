@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LolTracker</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css?v=60">
+</head>
+<body>
+  <div class="noise-overlay"></div>
+
+  <nav class="top-nav">
+    <div class="nav-brand" id="nav-home">
+      <span class="brand-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+      </span>
+      <span class="brand-text">LolTracker</span>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-view="dashboard">Dashboard</button>
+      <button class="nav-tab" data-view="champions">Champions</button>
+      <button class="nav-tab" data-view="live">Live Game</button>
+      <button class="nav-tab" data-view="predictions">Predictions</button>
+    </div>
+    <div class="nav-profile">
+      <select id="profile-select" class="profile-dropdown">
+        <option value="">No Profile</option>
+      </select>
+      <button id="edit-profile-btn" class="btn-icon btn-icon-sm" title="Edit Profile Name" aria-label="Edit profile name">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+        </svg>
+      </button>
+      <button id="new-profile-btn" class="btn-icon" title="New Profile" aria-label="Create new profile">+</button>
+    </div>
+  </nav>
+
+  <!-- Global live game notification bar -->
+  <div id="live-notify-bar" class="live-notify-bar hidden" role="alert" aria-live="polite"></div>
+  <!-- Background scheduler status bar -->
+  <div id="scheduler-bar" class="scheduler-bar hidden"></div>
+
+  <!-- ---- Dashboard View ---- -->
+  <main id="view-dashboard" class="view active">
+    <div class="container">
+
+      <!-- Profile Selection Landing -->
+      <div id="profile-landing" class="profile-landing">
+        <div class="landing-header">
+          <h1 class="page-title">LolTracker</h1>
+          <p class="page-subtitle">Select a profile to get started</p>
+        </div>
+        <div id="profile-cards" class="profile-cards-grid"></div>
+      </div>
+
+      <!-- Dashboard (hidden until profile selected) -->
+      <div id="dashboard-content" class="hidden">
+        <div class="dashboard-header">
+          <div class="header-title-group">
+            <h1 class="page-title">Your Accounts</h1>
+            <p class="page-subtitle" id="profile-name-display"></p>
+          </div>
+          <div class="header-actions">
+            <select id="season-select" class="season-select"></select>
+            <span id="rank-refresh-indicator" class="rank-refresh-indicator hidden"><span class="spinner-sm"></span> Updating ranks...</span>
+            <button id="add-account-btn" class="btn btn-primary">+ Add Account</button>
+          </div>
+        </div>
+
+        <!-- Dashboard widgets container -->
+        <div id="dashboard-grid"></div>
+
+        <!-- Empty state (profile selected but no accounts) -->
+        <div id="empty-state" class="empty-state hidden">
+          <div class="empty-icon">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+          </div>
+          <h2>No accounts yet</h2>
+          <p>Add your League accounts to start tracking across all of them.</p>
+          <button class="btn btn-primary" id="empty-add-btn">+ Add Account</button>
+        </div>
+
+        <!-- Match history section (shown when an account is selected) -->
+        <div id="account-detail" class="account-detail hidden">
+          <div class="detail-header">
+            <button id="back-to-grid" class="btn-back">&larr; Back</button>
+            <h2 id="detail-account-name" class="detail-title"></h2>
+            <div class="detail-actions">
+              <button id="backfill-btn" class="btn btn-secondary btn-sm">Backfill Season</button>
+            </div>
+          </div>
+          <div id="match-filters" class="match-filters hidden">
+            <select id="filter-champion" class="filter-select">
+              <option value="">All Champions</option>
+            </select>
+            <select id="filter-result" class="filter-select">
+              <option value="">Win/Loss</option>
+              <option value="win">Wins</option>
+              <option value="loss">Losses</option>
+              <option value="remake">Remakes</option>
+            </select>
+            <select id="filter-queue" class="filter-select">
+              <option value="">All Queues</option>
+              <option value="420">Solo/Duo</option>
+              <option value="440">Flex</option>
+            </select>
+            <span id="filter-count" class="filter-count"></span>
+          </div>
+          <div id="backfill-progress" class="backfill-progress hidden"></div>
+          <div id="detail-matches" class="match-list"></div>
+          <div id="load-more-wrap" class="load-more-wrap hidden">
+            <button id="load-more-btn" class="btn btn-secondary">Load More</button>
+          </div>
+        </div>
+      </div><!-- /dashboard-content -->
+    </div>
+  </main>
+
+  <!-- ---- Champions View ---- -->
+  <main id="view-champions" class="view">
+    <div class="container">
+      <h1 class="page-title">Champion Statistics</h1>
+      <div id="champion-stats-header" class="champion-stats-header"></div>
+
+      <div id="champion-filters" class="champion-filters hidden">
+        <div class="champion-filters-top">
+          <div class="role-filter-group">
+            <button class="role-btn active" data-role="all">All</button>
+            <button class="role-btn" data-role="Top">Top</button>
+            <button class="role-btn" data-role="Jungle">Jungle</button>
+            <button class="role-btn" data-role="Mid">Mid</button>
+            <button class="role-btn" data-role="Bot">Bot</button>
+            <button class="role-btn" data-role="Support">Support</button>
+          </div>
+          <div class="champion-filter-right">
+            <select id="champion-account-filter" class="champion-account-select">
+              <option value="">All Accounts</option>
+            </select>
+            <input type="text" id="champion-search" class="champion-search" placeholder="Search champion..." autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <div id="champions-list" class="champions-grid"></div>
+
+      <!-- Champion detail panel -->
+      <div id="champion-detail" class="champion-detail hidden">
+        <button id="back-to-champions" class="btn-back">&larr; All Champions</button>
+        <div id="champion-detail-content"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ---- Live Game View ---- -->
+  <main id="view-live" class="view">
+    <div class="container">
+      <h1 class="page-title">Live Game Lookup</h1>
+      <p class="page-subtitle">Check any player's active game and see a win prediction</p>
+
+      <div class="search-section">
+        <form id="live-search-form">
+          <div class="search-box">
+            <input type="text" id="live-riot-id" placeholder="GameName#TagLine" autocomplete="off" required>
+            <button type="submit" id="live-search-btn">Look Up</button>
+          </div>
+        </form>
+        <!-- Quick buttons for tracked accounts -->
+        <div id="live-account-pills" class="account-pills"></div>
+      </div>
+
+      <div id="live-status" class="status-bar hidden"></div>
+      <div id="live-error" class="error-bar hidden"></div>
+
+      <!-- Live game results -->
+      <div id="live-results" class="live-results hidden">
+        <!-- Build recommendation container injected here dynamically -->
+
+        <!-- Game data panel (hidden until full data loads) -->
+        <div id="live-game-data" class="hidden">
+          <div class="game-info-bar">
+            <span id="live-queue" class="queue-badge"></span>
+            <span id="live-timer" class="game-timer hidden"></span>
+          </div>
+
+          <!-- Win prediction -->
+          <div id="prediction-panel" class="prediction-panel"></div>
+
+          <!-- Teams -->
+          <div class="teams-container">
+            <div class="team" id="live-team-blue">
+              <h2 class="team-header team-blue">Blue Side</h2>
+              <div class="players-list" id="live-blue-players"></div>
+            </div>
+            <div class="vs-divider">VS</div>
+            <div class="team" id="live-team-red">
+              <h2 class="team-header team-red">Red Side</h2>
+              <div class="players-list" id="live-red-players"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Not in game -->
+      <div id="live-not-in-game" class="not-in-game hidden">
+        <p>This player is not currently in a game.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- ---- Predictions View ---- -->
+  <main id="view-predictions" class="view">
+    <div class="container">
+      <h1 class="page-title">Prediction History</h1>
+      <p class="page-subtitle">Track your win prediction accuracy over time</p>
+
+      <div id="prediction-stats" class="prediction-stats"></div>
+      <div class="pred-filter-bar">
+        <label for="pred-profile-filter">Filter by:</label>
+        <select id="pred-profile-filter">
+          <option value="all">All Predictions</option>
+        </select>
+      </div>
+      <div id="predictions-list" class="predictions-list"></div>
+    </div>
+  </main>
+
+  <!-- Modal overlay -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div id="modal" class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title"></h3>
+        <button id="modal-close" class="modal-close">&times;</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <!-- Riot Games legal disclaimer (required by Riot Developer Portal policies) -->
+  <footer class="riot-disclaimer">
+    <p>LolTracker isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</p>
+  </footer>
+
+  <script src="/static/app.js?v=60"></script>
+</body>
+</html>

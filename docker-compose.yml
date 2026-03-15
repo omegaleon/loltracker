@@ -1,0 +1,17 @@
+services:
+  tracker:
+    build: .
+    container_name: tracker
+    restart: unless-stopped
+    environment:
+      - TZ=America/New_York
+      - RIOT_API_KEY=${RIOT_API_KEY}
+      - LOLTRACKER_DB_PATH=/data/loltracker.db
+    volumes:
+      - /mnt/user/appdata/loltracker/data:/data
+    networks:
+      - tunnel-net
+
+networks:
+  tunnel-net:
+    external: true
