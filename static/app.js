@@ -769,9 +769,8 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="account-rank-display">
           <img loading="lazy" class="rank-icon-large" src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-shared-components/global/default/${tierLower}.png" alt="${tier}" onerror="this.style.display='none'">
           <div class="rank-info">
-            <div class="rank-tier-text tier-${tierLower}">${fullRank}</div>
-            <div class="rank-lp-text">${rank.lp} LP</div>
-            <span class="rank-wr-text ${wrClass(wr)}">${wr}% WR (${rank.wins}W ${rank.losses}L)</span>
+            <div class="rank-tier-text tier-${tierLower}">${fullRank} <span class="rank-lp-text">${rank.lp} LP</span></div>
+            <span class="rank-wr-text ${wrClass(wr)}">${wr}% (${rank.wins}W ${rank.losses}L)</span>
           </div>
         </div>
       </div>
