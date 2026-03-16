@@ -281,7 +281,9 @@ def delete_profile(profile_id):
 def add_account(profile_id):
     """Add an account to a profile by Riot ID."""
     data = request.get_json(silent=True) or {}
-    riot_id = data.get("riot_id", "").strip()
+    import re as _re
+    # Strip invisible Unicode characters (directional marks, zero-width chars, etc.)
+    riot_id = _re.sub(r'[\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]', '', data.get("riot_id", "")).strip()
     if not riot_id or "#" not in riot_id:
         return jsonify({"error": "Invalid Riot ID. Use GameName#TagLine"}), 400
 
