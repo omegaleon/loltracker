@@ -229,13 +229,19 @@ document.addEventListener("DOMContentLoaded", () => {
     return active ? active.id.replace("view-", "") : "dashboard";
   }
 
-  function selectProfile(profileId) {
+  async function selectProfile(profileId) {
     currentProfileId = profileId;
     profileSelect.value = profileId;
     localStorage.setItem("loltracker_profile_id", String(profileId));
     profileLanding.classList.add("hidden");
     dashboardContent.classList.remove("hidden");
-    loadProfile();
+
+    // Reset champion account filter when switching profiles
+    const champFilter = document.getElementById("champion-account-filter");
+    if (champFilter) champFilter.value = "";
+    champData = null;
+
+    await loadProfile();
 
     // Reload data for the currently active view
     const view = getActiveView();
