@@ -615,17 +615,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const games = wins + losses;
       const wr = games > 0 ? Math.round(wins / games * 100) : 0;
       const isSelected = s.key === currentSeason;
-      let rankBadge = "";
+      let rankText = "";
+      let rankClass = "";
       if (sr && sr.tier) {
         const t = sr.tier.charAt(0).toUpperCase() + sr.tier.slice(1).toLowerCase();
         const d = sr.division || "";
         const isApex = ["master", "grandmaster", "challenger"].includes(sr.tier.toLowerCase());
-        rankBadge = `<span class="season-history-rank tier-${sr.tier.toLowerCase()}">${isApex ? t : t + " " + d}</span>`;
+        rankText = isApex ? t : t + " " + d;
+        rankClass = ` tier-${sr.tier.toLowerCase()}`;
       }
       seasonRows.push(`
         <div class="season-history-row${isSelected ? " season-active" : ""}">
           <span class="season-history-label">${escHtml(s.label)}</span>
-          ${rankBadge}
+          <span class="season-history-rank${rankClass}">${rankText}</span>
           <span class="season-history-record">${games > 0 ? wins + "W " + losses + "L" : ""}</span>
           <span class="season-history-wr ${games > 0 ? wrClass(wr) : ""}">${games > 0 ? wr + "%" : ""}</span>
         </div>
