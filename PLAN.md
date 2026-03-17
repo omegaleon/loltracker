@@ -1,6 +1,67 @@
 # LolTracker - Implementation Plan
 
-## Current Task: Phase 25 — Remake Detection
+## Current Task: Phase 26 — Match History Enhancements
+
+### Features
+Four new features for the match history and post-game detail views.
+
+#### 26a: LP Change Per Game
+Show "+18 LP" or "-15 LP" next to each ranked match in match history.
+
+**Approach:**
+- `rank_history` table already records snapshots (tier, rank, lp, recorded_at) after each refresh
+- For each match, find the two closest rank_history snapshots (before and after game_start)
+- Compute LP delta: `after.lp - before.lp` (accounting for tier/division changes)
+- Backend: Add `lp_delta` field to match list API response
+- Frontend: Show colored badge next to W/L indicator: green "+18", red "-15"
+- Only for ranked queues (420, 440), skip for normals
+- Edge case: tier promotion/demotion — convert to absolute score diff
+
+**Files:** app.py (match list enrichment), database.py (rank_history query), app.js (render), style.css
+
+#### 26b: Loss Streak Tilt Warning
+Show a warning banner on the dashboard when a player loses 3+ games in a row in the current session.
+
+**Approach:**
+- Session stats already exist (`/api/accounts/{id}/session-stats`) — returns today's games + streak
+- Backend: Already computes `streak` (count + type) — just need to expose to dashboard
+- Frontend: In `loadSessionStats()`, if streak is loss >= 3, show a tilt warning banner on the account card
+- Style: Red/orange banner with warning icon, e.g. "🔥 3 loss streak — consider taking a break"
+- Dismiss: Auto-dismiss when streak breaks (win), no manual dismiss needed
+
+**Files:** app.js (session stats render), style.css (tilt banner)
+
+#### 26c: Match History Search by Opponent Champion
+Filter match history by enemy champion — "show all games where I played against Yasuo."
+
+**Approach:**
+- We store all 10 participants per match in the `participants` table
+- Backend: Add `vs_champion` query param to `GET /api/accounts/{id}/matches`
+- Query: JOIN participants twice — once for the player, once for any enemy with that champion
+- Frontend: Add "Vs Champion" filter dropdown next to existing filters, populated from opponent champions
+- Populate from loaded matches (client-side filtering like existing champion filter)
+
+**Files:** app.js (filter dropdown + logic), index.html (dropdown element)
+
+#### 26d: Gold/Damage Bars in Post-Game Detail
+Visual horizontal bars in the expanded match view showing relative gold and damage per player.
+
+**Approach:**
+- Data already available: `p.gold` and `p.damage` for each participant
+- Find the max gold and max damage across all 10 players in the match
+- Render proportional bars (width as % of max) under each player's stats
+- Two thin bars per player: gold (yellow) and damage (red/blue by team)
+- Add to `renderExpandTeamHighlighted` and `renderExpandTeam` functions
+
+**Files:** app.js (bar rendering), style.css (bar styles)
+
+### Order of Implementation
+1. 26b (tilt warning) — quickest, uses existing data
+2. 26a (LP change) — needs rank_history correlation
+3. 26c (opponent filter) — client-side filtering
+4. 26d (gold/damage bars) — visual addition
+
+## Previous: Phase 25 — Remake Detection
 
 ### Problem
 Remakes (games where someone AFKs in first ~2.5 min and team votes /remake) are being

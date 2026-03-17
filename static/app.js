@@ -79,6 +79,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const filterChampion = document.getElementById("filter-champion");
   const filterResult = document.getElementById("filter-result");
   const filterQueue = document.getElementById("filter-queue");
+  const filterVsChampion = document.getElementById("filter-vs-champion");
   const filterCount = document.getElementById("filter-count");
 
   // Champions
@@ -1191,6 +1192,7 @@ document.addEventListener("DOMContentLoaded", () => {
     filterChampion.innerHTML = '<option value="">All Champions</option>';
     filterResult.value = "";
     filterQueue.value = "";
+    filterVsChampion.value = "";
     filterCount.textContent = "";
   }
 
@@ -1206,12 +1208,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const champs = [...new Set(matches.map(m => m.champion_name).filter(Boolean))].sort();
     filterChampion.innerHTML = '<option value="">All Champions</option>' +
       champs.map(c => `<option value="${c}"${c === currentChamp ? " selected" : ""}>${c}</option>`).join("");
+
+    // Collect unique opponent champions
+    const currentVs = filterVsChampion.value;
+    const vsChamps = [...new Set(matches.flatMap(m => m.vs_champions || []).filter(Boolean))].sort();
+    filterVsChampion.innerHTML = '<option value="">Vs Champion</option>' +
+      vsChamps.map(c => `<option value="${c}"${c === currentVs ? " selected" : ""}>${c}</option>`).join("");
   }
 
   function applyMatchFilters() {
     const champFilter = filterChampion.value;
     const resultFilter = filterResult.value;
     const queueFilter = filterQueue.value;
+    const vsFilter = filterVsChampion.value;
 
     const filtered = allLoadedMatches.filter(m => {
       if (champFilter && m.champion_name !== champFilter) return false;
@@ -1219,11 +1228,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (resultFilter === "loss" && (m.win || m.is_remake)) return false;
       if (resultFilter === "remake" && !m.is_remake) return false;
       if (queueFilter && String(m.queue_id) !== queueFilter) return false;
+      if (vsFilter && !(m.vs_champions || []).includes(vsFilter)) return false;
       return true;
     });
 
     // Show count indicator
-    if (champFilter || resultFilter || queueFilter) {
+    if (champFilter || resultFilter || queueFilter || vsFilter) {
       filterCount.textContent = `${filtered.length} of ${allLoadedMatches.length} games`;
     } else {
       filterCount.textContent = "";
@@ -1236,6 +1246,7 @@ document.addEventListener("DOMContentLoaded", () => {
   filterChampion.addEventListener("change", applyMatchFilters);
   filterResult.addEventListener("change", applyMatchFilters);
   filterQueue.addEventListener("change", applyMatchFilters);
+  filterVsChampion.addEventListener("change", applyMatchFilters);
 
   // Backfill button handler — starts a background task and polls for status
   let backfillPollTimer = null;
@@ -3280,6 +3291,13 @@ document.addEventListener("DOMContentLoaded", () => {
     blue.sort((a, b) => positionOrder(a.position) - positionOrder(b.position));
     red.sort((a, b) => positionOrder(a.position) - positionOrder(b.position));
 
+    // Compute max damage/gold across all 10 players for bar widths
+    const allPlayers = [...blue, ...red];
+    const maxDmg = Math.max(...allPlayers.map(p => p.damage || 0), 1);
+    const maxGold = Math.max(...allPlayers.map(p => p.gold || 0), 1);
+    // Stash on players for cell renderers
+    allPlayers.forEach(p => { p._maxDmg = maxDmg; p._maxGold = maxGold; });
+
     const blueWon = winner === 100;
     const redWon = winner === 200;
 
@@ -3355,7 +3373,10 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
         </div>
         <span class="ep-kda">${kda}</span>
-        <span class="ep-dmg">${formatK(p.damage || 0)}</span>
+        <span class="ep-dmg">
+          ${formatK(p.damage || 0)}
+          ${p._maxDmg ? `<div class="ep-bar"><div class="ep-bar-fill ep-bar-dmg" style="width:${Math.round((p.damage || 0) / p._maxDmg * 100)}%"></div></div>` : ""}
+        </span>
         <span class="ep-cs">${p.cs || 0}<span class="ep-csm">${p.cs_per_min || 0}/m</span></span>
         <span class="ep-vis">${p.vision_score || 0}</span>
         <div class="ep-items">${items.map(id => id > 0
@@ -3366,13 +3387,15 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
   }
 
-  function renderExpandTeamHighlighted(players, ver, teamId, winner, ownNames) {
+  function renderExpandTeamHighlighted(players, ver, teamId, winner, ownNames, maxDmg, maxGold) {
     const teamClass = teamId === 100 ? "blue" : "red";
     const teamLabel = teamId === 100 ? "Blue Side" : "Red Side";
     const isWinner = teamId === winner;
 
     // Sort by position: Top, Jungle, Mid, Bot, Support
     players.sort((a, b) => (positionOrder(a.position) - positionOrder(b.position)));
+    // Stash max values for bar rendering
+    if (maxDmg) players.forEach(p => { p._maxDmg = maxDmg; p._maxGold = maxGold; });
 
     let html = `<div class="expand-team">
       <div class="expand-team-header ${teamClass}">
@@ -3413,7 +3436,10 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>
           </div>
           <span class="ep-kda">${kda}</span>
-          <span class="ep-dmg">${formatK(p.damage || 0)}</span>
+          <span class="ep-dmg">
+            ${formatK(p.damage || 0)}
+            ${p._maxDmg ? `<div class="ep-bar"><div class="ep-bar-fill ep-bar-dmg" style="width:${Math.round((p.damage || 0) / p._maxDmg * 100)}%"></div></div>` : ""}
+          </span>
           <span class="ep-cs">${p.cs || 0}<span class="ep-csm">${p.cs_per_min || 0}/m</span></span>
           <span class="ep-vis">${p.vision_score || 0}</span>
           <span class="ep-kp">${p.kill_participation || 0}%</span>
@@ -5378,6 +5404,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const icon = stat.streak_type === "W" ? "W" : "L";
             const cls = stat.streak_type === "W" ? "streak-win" : "streak-loss";
             html += `<span class="session-streak ${cls}">${stat.streak}${icon} streak</span>`;
+          }
+
+          // Tilt warning for 3+ loss streak
+          if (stat.streak_type === "L" && stat.streak >= 3) {
+            html += `<div class="tilt-warning">On a ${stat.streak} game loss streak — consider taking a break</div>`;
           }
 
           html += `</div>`;

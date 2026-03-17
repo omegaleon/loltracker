@@ -929,6 +929,34 @@ def count_matches_for_puuid(puuid: str, start_time: int | None = None,
         return row["cnt"] if row else 0
 
 
+def get_opponent_champions(match_ids: list, puuid: str) -> dict:
+    """Get opponent champion names for a list of matches.
+
+    Returns {match_id: [champion_name, ...]} for enemies (different team).
+    """
+    if not match_ids:
+        return {}
+    with get_db() as conn:
+        placeholders = ",".join("?" for _ in match_ids)
+        rows = conn.execute(
+            f"""SELECT p_enemy.match_id, p_enemy.champion_name
+                FROM participants p_enemy
+                JOIN participants p_self ON p_self.match_id = p_enemy.match_id
+                  AND p_self.puuid = ?
+                WHERE p_enemy.match_id IN ({placeholders})
+                  AND p_enemy.team_id != p_self.team_id
+                ORDER BY p_enemy.match_id""",
+            [puuid] + match_ids
+        ).fetchall()
+        result: dict = {}
+        for r in rows:
+            mid = r["match_id"]
+            if mid not in result:
+                result[mid] = []
+            result[mid].append(r["champion_name"])
+        return result
+
+
 def get_matches_for_puuids(puuids: list, limit: int = 100) -> list:
     """Get recent matches for multiple puuids (cross-account).
 

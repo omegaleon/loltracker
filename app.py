@@ -610,6 +610,13 @@ def account_matches(account_id):
     total = db.count_matches_for_puuid(puuid, start_time=start_time, end_time=end_time)
     version = _api.get_latest_version()
     formatted = _format_matches(matches, version)
+
+    # Enrich with opponent champion names for filtering
+    match_ids = [m["match_id"] for m in matches if m.get("match_id")]
+    opponents = db.get_opponent_champions(match_ids, puuid)
+    for fm in formatted:
+        fm["vs_champions"] = opponents.get(fm["match_id"], [])
+
     return jsonify({
         "account": {
             "id": acct["id"],
