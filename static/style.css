@@ -2672,12 +2672,13 @@ a.player-name:hover { color: var(--blue-accent); text-decoration: underline; }
 
 .eta-player-cell {
   display: grid;
-  grid-template-columns: minmax(100px, 1fr) 54px 46px 46px 30px minmax(140px, 180px);
+  grid-template-columns: minmax(100px, 1fr) 54px 46px 46px 30px auto;
   gap: 0.3rem;
   padding: 0.45rem 0.6rem;
   background: var(--bg-card);
   align-items: center;
   min-height: 48px;
+  overflow: hidden;
 }
 
 .eta-player-cell.win { border-left: 2px solid var(--win); }
@@ -2875,15 +2876,19 @@ a.ep-champ-name:hover {
 
 .ep-items {
   display: flex;
-  gap: 2px;
+  gap: 1px;
   flex-wrap: nowrap;
+  overflow: hidden;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .expand-item-img {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 3px;
   border: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .expand-item-empty {
