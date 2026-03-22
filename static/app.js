@@ -3314,7 +3314,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return `<a class="${extraClass || ""}" href="${url}" target="_blank" rel="noopener" title="${escHtml(gameName)}#${escHtml(tagLine || "")}">${escHtml(displayName)}</a>`;
   }
 
-  function renderAlignedPlayerCellHighlighted(p, ver, ownNames) {
+  function renderAlignedPlayerCellHighlighted(p, ver, ownNames, duoMap) {
     const kda = `${p.kills}/${p.deaths}/${p.assists}`;
     const items = [0,1,2,3,4,5,6].map(i => p[`item${i}`] || 0);
     const shortName = (p.game_name || "").split("#")[0] || p.champion_name;
@@ -3322,14 +3322,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const isOwn = isOwnAccount(fullName, ownNames);
     const ownClass = isOwn ? " ep-own" : "";
 
+    // Duo badge
+    const playerDuos = duoMap && p.puuid ? (duoMap[p.puuid] || []) : [];
+    const duoClass = playerDuos.length > 0 ? " has-duo" : "";
+    let duoBadgeHtml = "";
+    if (playerDuos.length > 0) {
+      duoBadgeHtml = playerDuos.map(d => {
+        const wrText = d.duo.duo_winrate ? ` ${d.duo.duo_winrate.winrate}%` : "";
+        return `<span class="duo-badge ${d.color}" title="${d.duo.shared_matches || 0} shared games${wrText}">DUO${wrText}</span>`;
+      }).join("");
+    }
+
     const rbi = p.role_bound_item || 0;
     return `
-      <div class="eta-player-cell ${p.win ? "win" : "loss"}${ownClass}">
+      <div class="eta-player-cell ${p.win ? "win" : "loss"}${ownClass}${duoClass}">
         <div class="ep-champ">
           <img loading="lazy" class="ep-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${p.champion_name}.png" alt="" onerror="this.style.display='none'">
           <div class="ep-champ-info">
             ${_opggLink(p.game_name, p.tag_line, shortName, "ep-champ-name" + (isOwn ? " ep-own-name" : ""))}
             <span class="ep-player-name">${escHtml(p.champion_name)}</span>
+            ${duoBadgeHtml}
           </div>
         </div>
         <span class="ep-kda">${kda}</span>
@@ -4170,9 +4182,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const bp = blue[i];
       const rp = red[i];
       html += `<div class="eta-pair-row">`;
-      html += bp ? renderAlignedPlayerCellHighlighted(bp, ver, ownNames) : '<div class="eta-player-cell empty"></div>';
+      html += bp ? renderAlignedPlayerCellHighlighted(bp, ver, ownNames, blueDuoMap) : '<div class="eta-player-cell empty"></div>';
       html += `<div class="eta-role-divider">${bp ? ({"TOP":"Top","JUNGLE":"Jg","MIDDLE":"Mid","BOTTOM":"Bot","UTILITY":"Sup","SUPPORT":"Sup"}[bp.position] || "") : ""}</div>`;
-      html += rp ? renderAlignedPlayerCellHighlighted(rp, ver, ownNames) : '<div class="eta-player-cell empty"></div>';
+      html += rp ? renderAlignedPlayerCellHighlighted(rp, ver, ownNames, redDuoMap) : '<div class="eta-player-cell empty"></div>';
       html += `</div>`;
     }
 
