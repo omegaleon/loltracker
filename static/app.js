@@ -18,6 +18,24 @@ const SPELL_IMG = {
   32: "SummonerSnowball",   // Mark (ARAM)
 };
 
+// ---- Global Utility Functions (DO NOT MOVE — must stay outside DOMContentLoaded) ----
+function escHtml(str) {
+  if (!str) return "";
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function wrClass(wr) {
+  if (wr >= 55) return "wr-good";
+  if (wr <= 45) return "wr-bad";
+  return "wr-mid";
+}
+function formatK(n) {
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+  return String(n);
+}
+function positionOrder(pos) {
+  return { TOP: 0, JUNGLE: 1, MIDDLE: 2, BOTTOM: 3, UTILITY: 4, SUPPORT: 4 }[pos] ?? 5;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
 
   // ---- State ----
