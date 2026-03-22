@@ -264,6 +264,28 @@ def init_db():
                 FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
                 UNIQUE(profile_id)
             );
+
+            CREATE TABLE IF NOT EXISTS focus_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id INTEGER NOT NULL,
+                rule_text TEXT NOT NULL,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ended_at TIMESTAMP DEFAULT NULL,
+                FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_focus_sessions_profile
+                ON focus_sessions(profile_id, ended_at);
+
+            CREATE TABLE IF NOT EXISTS focus_checkins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                match_id TEXT NOT NULL,
+                account_id INTEGER NOT NULL,
+                followed BOOLEAN NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES focus_sessions(id) ON DELETE CASCADE,
+                UNIQUE(session_id, match_id, account_id)
+            );
         """)
 
         # Migrations: add columns that may not exist in older databases
@@ -1915,3 +1937,125 @@ def save_dashboard_layout(profile_id: int, layout_json: str) -> bool:
         finally:
             conn.close()
     return False
+
+
+# ---- Focus Mode ----
+
+def get_active_focus(profile_id: int) -> dict | None:
+    """Get the active (non-ended) focus session for a profile."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT id, rule_text, started_at FROM focus_sessions
+               WHERE profile_id = ? AND ended_at IS NULL
+               ORDER BY started_at DESC LIMIT 1""",
+            (profile_id,)
+        ).fetchone()
+        if not row:
+            return None
+        stats = conn.execute(
+            """SELECT COUNT(*) as total,
+                      SUM(CASE WHEN followed THEN 1 ELSE 0 END) as followed_count
+               FROM focus_checkins WHERE session_id = ?""",
+            (row["id"],)
+        ).fetchone()
+        return {
+            "id": row["id"],
+            "rule_text": row["rule_text"],
+            "started_at": row["started_at"],
+            "total_checkins": stats["total"] or 0,
+            "followed_count": stats["followed_count"] or 0,
+        }
+
+
+def set_focus(profile_id: int, rule_text: str) -> dict:
+    """Set a new focus for the profile. Ends any previous active focus."""
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE focus_sessions SET ended_at = CURRENT_TIMESTAMP
+               WHERE profile_id = ? AND ended_at IS NULL""",
+            (profile_id,)
+        )
+        cur = conn.execute(
+            """INSERT INTO focus_sessions (profile_id, rule_text)
+               VALUES (?, ?)""",
+            (profile_id, rule_text)
+        )
+        conn.commit()
+        return {
+            "id": cur.lastrowid,
+            "rule_text": rule_text,
+            "total_checkins": 0,
+            "followed_count": 0,
+        }
+
+
+def end_focus(profile_id: int) -> bool:
+    """End the active focus session."""
+    with get_db() as conn:
+        result = conn.execute(
+            """UPDATE focus_sessions SET ended_at = CURRENT_TIMESTAMP
+               WHERE profile_id = ? AND ended_at IS NULL""",
+            (profile_id,)
+        )
+        conn.commit()
+        return result.rowcount > 0
+
+
+def save_focus_checkin(session_id: int, match_id: str, account_id: int, followed: bool) -> bool:
+    """Save a focus check-in for a match. Upserts."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO focus_checkins (session_id, match_id, account_id, followed)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(session_id, match_id, account_id)
+               DO UPDATE SET followed = excluded.followed""",
+            (session_id, match_id, account_id, followed)
+        )
+        conn.commit()
+        return True
+
+
+def get_focus_checkins_batch(session_id: int, match_ids: list) -> dict:
+    """Get check-in results for multiple matches. Returns {match_id: followed}."""
+    if not match_ids:
+        return {}
+    with get_db() as conn:
+        placeholders = ",".join("?" for _ in match_ids)
+        rows = conn.execute(
+            f"""SELECT match_id, followed FROM focus_checkins
+                WHERE session_id = ? AND match_id IN ({placeholders})""",
+            [session_id] + match_ids
+        ).fetchall()
+        return {r["match_id"]: bool(r["followed"]) for r in rows}
+
+
+def get_focus_stats(profile_id: int) -> dict:
+    """Get focus adherence stats including winrate correlation."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT fc.followed, p.win
+               FROM focus_checkins fc
+               JOIN focus_sessions fs ON fs.id = fc.session_id
+               JOIN participants p ON p.match_id = fc.match_id
+               JOIN accounts a ON a.id = fc.account_id AND a.puuid = p.puuid
+               WHERE fs.profile_id = ?""",
+            (profile_id,)
+        ).fetchall()
+
+        total = len(rows)
+        if total == 0:
+            return {"total": 0}
+
+        followed = [r for r in rows if r["followed"]]
+        not_followed = [r for r in rows if not r["followed"]]
+        followed_wins = sum(1 for r in followed if r["win"])
+        not_followed_wins = sum(1 for r in not_followed if r["win"])
+
+        return {
+            "total": total,
+            "followed_count": len(followed),
+            "not_followed_count": len(not_followed),
+            "adherence_pct": round(len(followed) / total * 100) if total > 0 else 0,
+            "followed_winrate": round(followed_wins / len(followed) * 100) if followed else None,
+            "not_followed_winrate": round(not_followed_wins / len(not_followed) * 100) if not_followed else None,
+        }

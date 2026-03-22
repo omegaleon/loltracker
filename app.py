@@ -3104,6 +3104,66 @@ def save_dashboard_layout(profile_id):
     return jsonify({"error": "Failed to save layout"}), 500
 
 
+# ---- Focus Mode ----
+
+@app.route("/api/profiles/<int:profile_id>/focus", methods=["GET"])
+def get_focus(profile_id):
+    """Get the active focus session for a profile."""
+    focus = db.get_active_focus(profile_id)
+    return jsonify({"focus": focus})
+
+
+@app.route("/api/profiles/<int:profile_id>/focus", methods=["POST"])
+def set_focus(profile_id):
+    """Set a new focus. Ends any previous active focus."""
+    data = request.get_json(silent=True) or {}
+    rule_text = (data.get("rule_text") or "").strip()
+    if not rule_text:
+        return jsonify({"error": "rule_text required"}), 400
+    focus = db.set_focus(profile_id, rule_text)
+    return jsonify({"ok": True, "focus": focus})
+
+
+@app.route("/api/profiles/<int:profile_id>/focus", methods=["DELETE"])
+def end_focus(profile_id):
+    """End the active focus session."""
+    db.end_focus(profile_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/profiles/<int:profile_id>/focus/checkin", methods=["POST"])
+def focus_checkin(profile_id):
+    """Save a focus check-in for a match."""
+    data = request.get_json(silent=True) or {}
+    session_id = data.get("session_id")
+    match_id = data.get("match_id")
+    account_id = data.get("account_id")
+    followed = data.get("followed")
+    if not all([session_id, match_id, account_id, followed is not None]):
+        return jsonify({"error": "session_id, match_id, account_id, followed required"}), 400
+    db.save_focus_checkin(session_id, match_id, account_id, bool(followed))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/profiles/<int:profile_id>/focus/checkins", methods=["GET"])
+def focus_checkins_batch(profile_id):
+    """Get check-in results for multiple matches."""
+    session_id = request.args.get("session_id", type=int)
+    match_ids_str = request.args.get("match_ids", "")
+    if not session_id or not match_ids_str:
+        return jsonify({"checkins": {}})
+    match_ids = [m.strip() for m in match_ids_str.split(",") if m.strip()]
+    checkins = db.get_focus_checkins_batch(session_id, match_ids)
+    return jsonify({"checkins": checkins})
+
+
+@app.route("/api/profiles/<int:profile_id>/focus/stats", methods=["GET"])
+def focus_stats(profile_id):
+    """Get focus adherence stats with winrate correlation."""
+    stats = db.get_focus_stats(profile_id)
+    return jsonify(stats)
+
+
 @app.route("/api/accounts/<int:account_id>/performance-score", methods=["GET"])
 def account_performance_score(account_id):
     """Compute GPI-style performance score vs lobby averages."""

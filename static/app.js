@@ -540,6 +540,9 @@ document.addEventListener("DOMContentLoaded", () => {
     gridEl.style.display = "";
     gridEl.innerHTML = "";
 
+    // Load focus banner
+    _loadFocusBanner();
+
     // Fixed widget order — build DOM first, then render content
     // (render functions use getElementById which needs elements in DOM)
 
@@ -1411,6 +1414,11 @@ document.addEventListener("DOMContentLoaded", () => {
       matchHasMore = data.has_more;
       currentDdragonVersion = data.ddragon_version;
       allLoadedMatches = data.matches || [];
+      // Pre-load focus check-in status
+      _focusCheckinCache = {};
+      if (currentFocus && allLoadedMatches.length > 0) {
+        await _loadFocusCheckins(allLoadedMatches.map(m => m.match_id).filter(Boolean));
+      }
       renderMatchList(detailMatches, data.matches, data.ddragon_version);
       updateLoadMoreButton();
       populateMatchFilters(allLoadedMatches);
@@ -1539,6 +1547,12 @@ document.addEventListener("DOMContentLoaded", () => {
       // Make row expandable to show full game detail
       if (m.match_id) {
         makeMatchRowExpandable(row, m.match_id, ver);
+      }
+
+      // Focus mode check-in prompt
+      if (currentFocus && currentDetailAccount && !m.is_remake) {
+        m._account_id = currentDetailAccount.id;
+        _renderFocusCheckin(row, m);
       }
 
       container.appendChild(row);
@@ -3548,6 +3562,189 @@ document.addEventListener("DOMContentLoaded", () => {
       hideModal();
     }
   });
+
+  // ---- Focus Mode ----
+
+  const FOCUS_QUICK_PICKS = [
+    "Farm safe when behind \u2014 no solo fights after 2 deaths",
+    "Mute at first sign of tilt",
+    "No chasing past river without vision",
+    "Play for objectives, not kills",
+    "Reset after dying \u2014 don't TP back to fight",
+    "Track enemy jungler before trading",
+  ];
+
+  let currentFocus = null; // {id, rule_text, started_at, total_checkins, followed_count}
+
+  async function _loadFocusBanner() {
+    if (!currentProfileId) return;
+    const banner = document.getElementById("focus-banner");
+    if (!banner) return;
+
+    try {
+      const res = await fetch(`/api/profiles/${currentProfileId}/focus`);
+      const data = await res.json();
+      currentFocus = data.focus;
+    } catch (e) {
+      currentFocus = null;
+    }
+
+    if (currentFocus) {
+      _renderActiveFocus(banner);
+    } else {
+      _renderFocusPicker(banner);
+    }
+  }
+
+  function _renderFocusPicker(banner) {
+    const picks = FOCUS_QUICK_PICKS.map(r =>
+      `<button class="focus-pick-btn">${escHtml(r)}</button>`
+    ).join("");
+
+    banner.innerHTML = `
+      <div class="focus-picker">
+        <div class="focus-picker-header">
+          <span class="focus-picker-title">What's your focus today?</span>
+        </div>
+        <div class="focus-pick-list">${picks}</div>
+        <div class="focus-custom">
+          <input type="text" class="focus-custom-input" id="focus-custom-input" placeholder="Or type your own..." maxlength="200">
+          <button class="btn btn-primary btn-sm" id="focus-custom-set">Set</button>
+        </div>
+      </div>
+    `;
+
+    // Wire quick-pick buttons
+    banner.querySelectorAll(".focus-pick-btn").forEach(btn => {
+      btn.addEventListener("click", () => _setFocus(btn.textContent));
+    });
+
+    // Wire custom input
+    const customInput = document.getElementById("focus-custom-input");
+    const customBtn = document.getElementById("focus-custom-set");
+    customBtn.addEventListener("click", () => {
+      const val = customInput.value.trim();
+      if (val) _setFocus(val);
+    });
+    customInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const val = customInput.value.trim();
+        if (val) _setFocus(val);
+      }
+    });
+  }
+
+  function _renderActiveFocus(banner) {
+    const adherence = currentFocus.total_checkins > 0
+      ? Math.round(currentFocus.followed_count / currentFocus.total_checkins * 100)
+      : null;
+    const statsStr = currentFocus.total_checkins > 0
+      ? `${currentFocus.followed_count}/${currentFocus.total_checkins} games (${adherence}%)`
+      : "No check-ins yet";
+
+    banner.innerHTML = `
+      <div class="focus-active">
+        <div class="focus-active-label">FOCUS</div>
+        <div class="focus-active-rule">${escHtml(currentFocus.rule_text)}</div>
+        <div class="focus-active-stats">${statsStr}</div>
+        <div class="focus-active-actions">
+          <button class="btn btn-secondary btn-sm" id="focus-change-btn">Change</button>
+          <button class="btn btn-secondary btn-sm" id="focus-end-btn">End</button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById("focus-change-btn").addEventListener("click", () => {
+      _renderFocusPicker(banner);
+    });
+    document.getElementById("focus-end-btn").addEventListener("click", async () => {
+      await fetch(`/api/profiles/${currentProfileId}/focus`, { method: "DELETE" });
+      currentFocus = null;
+      _renderFocusPicker(banner);
+    });
+  }
+
+  async function _setFocus(ruleText) {
+    try {
+      const res = await fetch(`/api/profiles/${currentProfileId}/focus`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rule_text: ruleText }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        currentFocus = data.focus;
+        const banner = document.getElementById("focus-banner");
+        _renderActiveFocus(banner);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Cache of focus check-in results: {match_id: true/false}
+  let _focusCheckinCache = {};
+
+  async function _loadFocusCheckins(matchIds) {
+    if (!currentFocus || !matchIds.length) return;
+    try {
+      const res = await fetch(`/api/profiles/${currentProfileId}/focus/checkins?session_id=${currentFocus.id}&match_ids=${matchIds.join(",")}`);
+      const data = await res.json();
+      if (data.checkins) Object.assign(_focusCheckinCache, data.checkins);
+    } catch (e) { /* ignore */ }
+  }
+
+  function _renderFocusCheckin(row, match) {
+    if (!currentFocus || !match.match_id) return;
+    if (match.is_remake) return;
+
+    const existing = row.querySelector(".focus-checkin");
+    if (existing) return;
+
+    // Check cache for already-completed check-in
+    const cached = _focusCheckinCache[match.match_id];
+    if (cached !== undefined) {
+      const result = document.createElement("div");
+      result.className = "focus-checkin";
+      result.innerHTML = `<span class="focus-checkin-result ${cached ? "focus-followed" : "focus-not-followed"}">
+        ${cached ? "Followed focus" : "Did not follow focus"}
+      </span>`;
+      row.appendChild(result);
+      return;
+    }
+
+    const checkin = document.createElement("div");
+    checkin.className = "focus-checkin";
+    checkin.innerHTML = `
+      <span class="focus-checkin-label">Followed focus?</span>
+      <button class="focus-checkin-btn focus-yes" data-followed="true">Yes</button>
+      <button class="focus-checkin-btn focus-no" data-followed="false">No</button>
+    `;
+
+    checkin.querySelectorAll(".focus-checkin-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const followed = btn.dataset.followed === "true";
+        const accountId = match._account_id;
+        await fetch(`/api/profiles/${currentProfileId}/focus/checkin`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: currentFocus.id,
+            match_id: match.match_id,
+            account_id: accountId,
+            followed: followed,
+          }),
+        });
+        // Update UI
+        checkin.innerHTML = `<span class="focus-checkin-result ${followed ? "focus-followed" : "focus-not-followed"}">
+          ${followed ? "Followed focus" : "Did not follow focus"}
+        </span>`;
+        // Update counts
+        currentFocus.total_checkins++;
+        if (followed) currentFocus.followed_count++;
+      });
+    });
+
+    row.appendChild(checkin);
+  }
 
   // ---- Feature 5: Head-to-Head Comparison -----------------------------------
 

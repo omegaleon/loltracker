@@ -1,6 +1,64 @@
 # LolTracker - Implementation Plan
 
-## Current Task: Phase 26 — Match History Enhancements
+## Current Task: Phase 27 — Focus Mode
+
+### Problem
+Player knows what to do but doesn't do it under pressure. Fights when behind,
+tilts from teammates, autopilot aggression. Knowledge isn't the bottleneck —
+discipline is. Need a behavioral feedback loop, not more analysis.
+
+### Design
+- **One active focus per profile**, nullable, persists until changed
+- **Pre-session**: Dashboard banner "What's your focus today?" with quick-picks + custom text
+- **During session**: Focus rule pinned at top of dashboard, visible between games
+- **Post-game**: Each new match card shows "Did you follow your rule? Yes/No"
+- **Over time**: Track adherence %, correlate with winrate
+
+### Data Model
+```
+focus_sessions:
+  id INTEGER PRIMARY KEY,
+  profile_id INTEGER NOT NULL,
+  rule_text TEXT NOT NULL,
+  started_at TEXT DEFAULT (datetime('now')),
+  ended_at TEXT DEFAULT NULL,
+  FOREIGN KEY (profile_id) REFERENCES profiles(id)
+
+focus_checkins:
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL,
+  match_id TEXT NOT NULL,
+  account_id INTEGER NOT NULL,
+  followed BOOLEAN NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (session_id) REFERENCES focus_sessions(id)
+```
+
+### API Endpoints
+- `GET /api/profiles/{id}/focus` — Get active focus (or null)
+- `POST /api/profiles/{id}/focus` — Set new focus {rule_text}; ends previous
+- `DELETE /api/profiles/{id}/focus` — End current focus
+- `POST /api/profiles/{id}/focus/checkin` — {match_id, account_id, followed}
+- `GET /api/profiles/{id}/focus/stats` — Adherence %, winrate when followed vs not
+
+### Quick-Pick Library
+- "Farm safe when behind — no solo fights after 2 deaths"
+- "Mute at first sign of tilt"
+- "No chasing past river without vision"
+- "Play for objectives, not kills"
+- "Reset after dying — don't TP back to fight"
+- "Track enemy jungler before trading"
+
+### Frontend
+1. Dashboard: focus banner above account cards
+   - No focus: subtle "Set a focus for today?" card with quick-picks
+   - Active focus: pinned banner showing rule, "X games, Y days active", change/end buttons
+2. Match cards: check-in prompt on matches played during active focus session
+   - Simple Yes/No buttons, saves immediately
+   - Already checked in: shows result (green check / red x)
+3. Focus stats card (later): adherence trend, winrate correlation
+
+## Previous: Phase 26 — Match History Enhancements
 
 ### Features
 Four new features for the match history and post-game detail views.
