@@ -18,6 +18,10 @@ const SPELL_IMG = {
   32: "SummonerSnowball",   // Mark (ARAM)
 };
 
+// Champion name fixes for Data Dragon icon URLs (Riot API vs DDragon inconsistencies)
+const CHAMP_NAME_FIX = { "FiddleSticks": "Fiddlesticks" };
+function fixChampName(name) { return CHAMP_NAME_FIX[name] || name; }
+
 // ---- Global Utility Functions (DO NOT MOVE — must stay outside DOMContentLoaded) ----
 function escHtml(str) {
   if (!str) return "";
@@ -1523,7 +1527,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       row.innerHTML = `
         <span class="match-wl-badge ${m.is_remake ? "r" : (m.win ? "w" : "l")}">${m.is_remake ? "R" : (m.win ? "W" : "L")}</span>
-        <img loading="lazy" class="match-champ-img" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${m.champion_name}.png" alt="${m.champion_name}" onerror="this.style.display='none'">
+        <img loading="lazy" class="match-champ-img" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${fixChampName(m.champion_name)}.png" alt="${m.champion_name}" onerror="this.style.display='none'">
         <div class="match-info">
           <div class="match-top-line">
             <span class="match-player-name">${escHtml(playerName)}</span>
@@ -1874,7 +1878,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       card.innerHTML = `
-        <img loading="lazy" class="champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${c.champion_name}.png" alt="${c.champion_name}" onerror="this.style.display='none'">
+        <img loading="lazy" class="champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${fixChampName(c.champion_name)}.png" alt="${c.champion_name}" onerror="this.style.display='none'">
         <div class="champ-info">
           <div class="champ-name">${c.champion_name} ${posTag}</div>
           <div class="champ-stats-line">
@@ -1917,7 +1921,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let html = `
       <div class="champ-detail-header">
-        <img loading="lazy" class="champ-icon-large" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${data.champion_name}.png" alt="${data.champion_name}" onerror="this.style.display='none'">
+        <img loading="lazy" class="champ-icon-large" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${fixChampName(data.champion_name)}.png" alt="${data.champion_name}" onerror="this.style.display='none'">
         <div>
           <h2 style="font-size:1.8rem;color:var(--text-primary);margin-bottom:0.5rem">${data.champion_name}</h2>
           <div class="champ-detail-stats">
@@ -2731,7 +2735,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     card.innerHTML = `
-      <img loading="lazy" class="player-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${p.champion_name}.png" alt="${p.champion_name}" onerror="this.style.display='none'">
+      <img loading="lazy" class="player-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${fixChampName(p.champion_name)}.png" alt="${p.champion_name}" onerror="this.style.display='none'">
       <div class="player-spells">${spellsHtml}</div>
       <div class="player-info">
         ${nameHtml}
@@ -2825,7 +2829,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       card.innerHTML = `
-        <img loading="lazy" class="player-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${p.champion_name}.png" alt="${p.champion_name}" onerror="this.style.display='none'">
+        <img loading="lazy" class="player-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${fixChampName(p.champion_name)}.png" alt="${p.champion_name}" onerror="this.style.display='none'">
         <div class="player-spells">${spellsHtml}</div>
         <div class="player-info">
           ${nameHtml}
@@ -3337,7 +3341,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return `
       <div class="eta-player-cell ${p.win ? "win" : "loss"}${ownClass}${duoClass}">
         <div class="ep-champ">
-          <img loading="lazy" class="ep-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${p.champion_name}.png" alt="" onerror="this.style.display='none'">
+          <img loading="lazy" class="ep-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${fixChampName(p.champion_name)}.png" alt="" onerror="this.style.display='none'">
           <div class="ep-champ-info">
             ${_opggLink(p.game_name, p.tag_line, shortName, "ep-champ-name" + (isOwn ? " ep-own-name" : ""))}
             <span class="ep-player-name">${escHtml(p.champion_name)}</span>
@@ -3401,7 +3405,7 @@ document.addEventListener("DOMContentLoaded", () => {
       html += `
         <div class="expand-player-row ${p.win ? "win" : "loss"}${ownClass}">
           <div class="ep-champ">
-            <img loading="lazy" class="ep-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${p.champion_name}.png" alt="" onerror="this.style.display='none'">
+            <img loading="lazy" class="ep-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${fixChampName(p.champion_name)}.png" alt="" onerror="this.style.display='none'">
             <div class="ep-champ-info">
               ${_opggLink(p.game_name, p.tag_line, shortName, "ep-champ-name" + (isOwn ? " ep-own-name" : ""))}
               <span class="ep-player-name">${escHtml(p.champion_name)}${pos ? ` <span class="ep-pos">${pos}</span>` : ""}</span>
