@@ -52,6 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let itemDataCache = null;   // {version, items: {id: {name, description, gold}}}
   let expandedMatchId = null; // currently expanded match row
   let liveStatusTimer = null; // polling timer for live game status on dashboard
+  let toastTimer = null;       // timer for toast auto-hide
   const duoCache = new Map();  // match_id -> { duos: [...] }
   let duoScanAbort = null;     // AbortController for current duo scan
   const DUO_COLORS = ["duo-1", "duo-2", "duo-3", "duo-4"];
@@ -3713,6 +3714,329 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
   }
 
+
+  // ---- Toast Notification ----
+  function showToast(msg, duration = 2500) { return toast(msg, duration); }
+  function toast(msg, duration = 2500) {
+    toastEl.textContent = msg;
+    toastEl.classList.remove("hidden");
+    toastEl.classList.add("show");
+    if (toastTimer) clearTimeout(toastTimer);
+    // Longer messages get more time (min 2.5s, scale with length)
+    const displayTime = Math.max(duration, Math.min(msg.length * 40, 8000));
+    toastTimer = setTimeout(() => {
+      toastEl.classList.remove("show");
+      setTimeout(() => toastEl.classList.add("hidden"), 300);
+    }, displayTime);
+  }
+
+  // ---- Match Row Expand/Collapse ----
+  function makeMatchRowExpandable(row, matchId, version) {
+    row.style.cursor = "pointer";
+    row.addEventListener("click", (e) => {
+      // Don't expand if clicking a link
+      if (e.target.closest("a")) return;
+      toggleMatchExpand(row, matchId, version);
+    });
+  }
+
+  function collapsePanel(panel, parentRow) {
+    panel.style.transition = "opacity 0.18s ease, max-height 0.25s ease";
+    panel.style.opacity = "0";
+    panel.style.maxHeight = panel.scrollHeight + "px";
+    requestAnimationFrame(() => { panel.style.maxHeight = "0"; });
+    if (parentRow) parentRow.classList.remove("match-expanded");
+    setTimeout(() => panel.remove(), 250);
+  }
+
+  function toggleMatchExpand(row, matchId, version) {
+    const existing = row.nextElementSibling;
+    if (existing && existing.classList.contains("match-expand-panel")) {
+      collapsePanel(existing, row);
+      expandedMatchId = null;
+      return;
+    }
+
+    // Collapse any other expanded row
+    document.querySelectorAll(".match-expand-panel").forEach(el => collapsePanel(el));
+    document.querySelectorAll(".match-row.match-expanded").forEach(el => el.classList.remove("match-expanded"));
+
+    row.classList.add("match-expanded");
+    expandedMatchId = matchId;
+
+    const panel = document.createElement("div");
+    panel.className = "match-expand-panel";
+    panel.innerHTML = '<div class="expand-loading"><span class="spinner"></span> Loading match details...</div>';
+    row.after(panel);
+
+    loadMatchExpand(panel, matchId, version);
+  }
+
+  async function loadMatchExpand(panel, matchId, version) {
+    try {
+      const [detailRes, predRes] = await Promise.all([
+        fetch(`/api/matches/${encodeURIComponent(matchId)}/detail`),
+        fetch(`/api/matches/${encodeURIComponent(matchId)}/prediction`),
+      ]);
+
+      if (!detailRes.ok) {
+        const errText = detailRes.status === 500 ? "Server error — please retry." : `Error ${detailRes.status}`;
+        panel.innerHTML = `<div class="expand-error">${escHtml(errText)}<br><button class="retry-btn" onclick="this.closest('.match-expand-panel').previousElementSibling.click()">Retry</button></div>`;
+        return;
+      }
+      const detail = await detailRes.json();
+      const prediction = predRes.ok ? await predRes.json() : null;
+
+      if (detail.error) {
+        panel.innerHTML = `<div class="expand-error">${escHtml(detail.error)}<br><button class="retry-btn" onclick="this.closest('.match-expand-panel').previousElementSibling.click()">Retry</button></div>`;
+        return;
+      }
+
+      // Render immediately with no duo data — duos load in background
+      const cachedDuos = duoCache.has(matchId) ? duoCache.get(matchId) : null;
+      renderMatchExpand(panel, detail, prediction, version, cachedDuos);
+
+      // Fetch duos in background (may involve API calls — don't block render)
+      if (!cachedDuos) {
+        fetch(`/api/matches/${encodeURIComponent(matchId)}/duos`)
+          .then(r => r.json())
+          .then(duoData => {
+            if (duoData && !duoData.error) {
+              duoCache.set(matchId, duoData);
+              // Re-render with duo data if panel is still open
+              if (panel.isConnected) {
+                renderMatchExpand(panel, detail, prediction, version, duoData);
+              }
+            }
+          })
+          .catch(() => {}); // silently fail — duos are non-critical
+      }
+    } catch (e) {
+      const msg = e.message || "Network error";
+      panel.innerHTML = `<div class="expand-error">Failed to load match details: ${escHtml(msg)}<br><button class="retry-btn" onclick="this.closest('.match-expand-panel').previousElementSibling.click()">Retry</button></div>`;
+    }
+  }
+
+  function renderMatchExpand(panel, detail, prediction, fallbackVersion, duoData) {
+    const ver = detail.ddragon_version || fallbackVersion;
+    const duration = detail.game_duration || 0;
+    const durStr = `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`;
+    const dateStr = detail.game_start
+      ? new Date(detail.game_start).toLocaleDateString()
+      : "";
+
+    const participants = detail.participants || [];
+    const blue = participants.filter(p => p.team_id === 100);
+    const red = participants.filter(p => p.team_id === 200);
+    const teams = detail.teams || {};
+    const winner = detail.winning_team;
+
+    // Organize duos by team
+    const duosByTeam = { 100: [], 200: [] };
+    if (duoData && duoData.duos) {
+      duoData.duos.forEach(d => {
+        if (d.team_id) duosByTeam[d.team_id].push(d);
+      });
+    }
+
+    let html = `<div class="expand-header">
+      <span class="expand-queue">${escHtml(detail.queue_name || "")}</span>
+      <span class="expand-dur">${durStr}</span>
+      ${dateStr ? `<span class="expand-date">${dateStr}</span>` : ""}
+    </div>`;
+
+    // Team comparison bars
+    const blueT = teams[100] || { kills: 0, damage: 0, gold: 0 };
+    const redT = teams[200] || { kills: 0, damage: 0, gold: 0 };
+    html += renderTeamComparisonBars(blueT, redT);
+
+    // Teams with role-aligned rows
+    html += renderExpandTeamsAligned(blue, red, ver, winner, duosByTeam);
+
+    // Retroactive prediction with full factor breakdown (collapsed by default)
+    if (prediction && !prediction.error) {
+      const factors = prediction.factors || null;
+      html += renderPredFactorBreakdown(prediction, factors, true);
+    }
+
+    panel.innerHTML = html;
+
+    // Wire up prediction analysis toggle
+    panel.querySelectorAll(".pred-collapsible-toggle").forEach(toggle => {
+      toggle.addEventListener("click", () => {
+        const body = toggle.nextElementSibling;
+        if (!body) return;
+        const isHidden = body.classList.toggle("hidden");
+        const arrow = toggle.querySelector(".pred-toggle-arrow");
+        if (arrow) arrow.innerHTML = isHidden ? "&#9654;" : "&#9660;";
+      });
+    });
+  }
+
+  // ---- Team Comparison Bars ----
+  function renderTeamComparisonBars(blue, red) {
+    const bars = [
+      { label: "Kills", bVal: blue.kills, rVal: red.kills },
+      { label: "Damage", bVal: blue.damage, rVal: red.damage },
+      { label: "Gold", bVal: blue.gold, rVal: red.gold },
+    ];
+
+    let html = '<div class="expand-comparison">';
+    bars.forEach(b => {
+      const total = (b.bVal + b.rVal) || 1;
+      const bPct = Math.round(b.bVal / total * 100);
+      const rPct = 100 - bPct;
+      html += `
+        <div class="comp-row">
+          <span class="comp-val blue">${formatK(b.bVal)}</span>
+          <div class="comp-bar">
+            <div class="comp-fill blue" style="width:${bPct}%"></div>
+            <div class="comp-fill red" style="width:${rPct}%"></div>
+          </div>
+          <span class="comp-val red">${formatK(b.rVal)}</span>
+          <span class="comp-label">${b.label}</span>
+        </div>
+      `;
+    });
+    html += '</div>';
+    return html;
+  }
+
+  // ---- Expand Teams Aligned (with duo indicators) ----
+  function renderExpandTeamsAligned(blue, red, ver, winner, duosByTeam) {
+    blue.sort((a, b) => positionOrder(a.position) - positionOrder(b.position));
+    red.sort((a, b) => positionOrder(a.position) - positionOrder(b.position));
+
+    const blueWon = winner === 100;
+    const redWon = winner === 200;
+
+    // Build duo color maps for each team
+    function buildDuoMap(duos) {
+      const map = {};
+      if (duos && duos.length > 0) {
+        duos.forEach((d, idx) => {
+          const color = DUO_COLORS[idx % DUO_COLORS.length];
+          d.players.forEach(pid => {
+            if (!map[pid]) map[pid] = [];
+            map[pid].push({ color, duo: d });
+          });
+        });
+      }
+      return map;
+    }
+    const blueDuoMap = buildDuoMap(duosByTeam[100]);
+    const redDuoMap = buildDuoMap(duosByTeam[200]);
+
+    // Compute max damage/gold across all 10 players for bar widths
+    const allPlayers = [...blue, ...red];
+    const maxDmg = Math.max(...allPlayers.map(p => p.damage || 0), 1);
+    const maxGold = Math.max(...allPlayers.map(p => p.gold || 0), 1);
+    allPlayers.forEach(p => { p._maxDmg = maxDmg; p._maxGold = maxGold; });
+
+    // Get own account names for highlighting
+    const ownNames = getProfileAccountNames();
+
+    let html = `<div class="expand-teams-aligned">`;
+
+    html += `<div class="eta-header-row">
+      <div class="eta-team-hdr blue">
+        Blue Side ${blueWon ? '<span class="expand-winner-badge">VICTORY</span>' : '<span class="expand-loser-badge">DEFEAT</span>'}
+      </div>
+      <div class="eta-vs">VS</div>
+      <div class="eta-team-hdr red">
+        Red Side ${redWon ? '<span class="expand-winner-badge">VICTORY</span>' : '<span class="expand-loser-badge">DEFEAT</span>'}
+      </div>
+    </div>`;
+
+    html += `<div class="eta-col-headers">
+      <div class="eta-col-hdr-team">
+        <span class="eph-champ">Player</span>
+        <span class="eph-kda">KDA</span>
+        <span class="eph-dmg">Dmg</span>
+        <span class="eph-cs">CS</span>
+        <span class="eph-vis">Vis</span>
+        <span class="eph-items">Items</span>
+      </div>
+      <div class="eta-col-hdr-vs"></div>
+      <div class="eta-col-hdr-team">
+        <span class="eph-champ">Player</span>
+        <span class="eph-kda">KDA</span>
+        <span class="eph-dmg">Dmg</span>
+        <span class="eph-cs">CS</span>
+        <span class="eph-vis">Vis</span>
+        <span class="eph-items">Items</span>
+      </div>
+    </div>`;
+
+    const maxLen = Math.max(blue.length, red.length);
+    for (let i = 0; i < maxLen; i++) {
+      const bp = blue[i];
+      const rp = red[i];
+      html += `<div class="eta-pair-row">`;
+      html += bp ? renderAlignedPlayerCellHighlighted(bp, ver, ownNames) : '<div class="eta-player-cell empty"></div>';
+      html += `<div class="eta-role-divider">${bp ? ({"TOP":"Top","JUNGLE":"Jg","MIDDLE":"Mid","BOTTOM":"Bot","UTILITY":"Sup","SUPPORT":"Sup"}[bp.position] || "") : ""}</div>`;
+      html += rp ? renderAlignedPlayerCellHighlighted(rp, ver, ownNames) : '<div class="eta-player-cell empty"></div>';
+      html += `</div>`;
+    }
+
+    html += `</div>`;
+    return html;
+  }
+
+  // ---- Session Stats (today's record + streaks on dashboard cards) ----
+  function loadSessionStats() {
+    if (!currentProfileId) return;
+
+    fetch(`/api/profiles/${currentProfileId}/session-stats`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.accounts) return;
+        data.accounts.forEach(stat => {
+          const card = accountsGrid.querySelector(`[data-account-id="${stat.account_id}"]`);
+          if (!card) return;
+
+          // Remove any existing session badge
+          const existing = card.querySelector(".session-badge");
+          if (existing) existing.remove();
+          const existingTilt = card.querySelector(".tilt-warning");
+          if (existingTilt) existingTilt.remove();
+
+          const totalToday = stat.today_wins + stat.today_losses;
+          if (totalToday === 0 && stat.streak < 2) return;
+
+          let html = `<div class="session-badge">`;
+
+          // Today's record
+          if (totalToday > 0) {
+            html += `<span class="session-today">Today: <strong>${stat.today_wins}W-${stat.today_losses}L</strong>`;
+            if (stat.lp_change !== null && stat.lp_change !== 0) {
+              const sign = stat.lp_change > 0 ? "+" : "";
+              const cls = stat.lp_change > 0 ? "win" : "loss";
+              html += ` <span class="session-lp ${cls}">${sign}${stat.lp_change} LP</span>`;
+            }
+            html += `</span>`;
+          }
+
+          // Streak
+          if (stat.streak >= 2) {
+            const icon = stat.streak_type === "W" ? "W" : "L";
+            const cls = stat.streak_type === "W" ? "streak-win" : "streak-loss";
+            html += `<span class="session-streak ${cls}">${stat.streak}${icon} streak</span>`;
+          }
+
+          html += `</div>`;
+
+          // Tilt warning for 3+ loss streak
+          let tiltHtml = "";
+          if (stat.streak_type === "L" && stat.streak >= 3) {
+            tiltHtml = `<div class="tilt-warning">On a ${stat.streak} game loss streak — consider taking a break</div>`;
+          }
+
+          card.querySelector(".account-queues").insertAdjacentHTML("afterend", tiltHtml + html);
+        });
+      })
+      .catch(() => {});
+  }
 
   // ---- Feature Integration: Hook into dashboard render ----------------------
 
