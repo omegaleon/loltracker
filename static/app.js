@@ -3638,7 +3638,8 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="focus-picker-header">
           <span class="focus-picker-title">What's your focus today?</span>
         </div>
-        <div class="focus-pick-list"><span class="spinner-sm"></span> Analyzing your recent games...</div>
+        <div id="focus-benchmark-status" class="focus-benchmark-status"></div>
+        <div class="focus-pick-list"><span class="spinner-sm"></span> Analyzing your last 10 games...</div>
         <div class="focus-custom">
           <input type="text" class="focus-custom-input" id="focus-custom-input" placeholder="Or type your own..." maxlength="200">
           <button class="btn btn-primary btn-sm" id="focus-custom-set">Set</button>
@@ -3649,18 +3650,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let suggestions = [];
     let previous = [];
+    let benchmarksReady = false;
+    let targetTier = "";
+    let targetDiv = "";
     try {
       const res = await fetch(`/api/accounts/${currentDetailAccount.id}/focus/suggestions`);
       const data = await res.json();
       suggestions = data.suggestions || [];
       previous = data.previous || [];
+      benchmarksReady = data.benchmarks_ready || false;
+      targetTier = data.target_tier || "";
+      targetDiv = data.target_division || "";
     } catch (e) { /* ignore */ }
+
+    // Show benchmark status
+    const benchEl = document.getElementById("focus-benchmark-status");
+    if (benchEl && targetTier) {
+      const tierName = targetTier.charAt(0) + targetTier.slice(1).toLowerCase();
+      const divName = targetDiv || "";
+      if (benchmarksReady) {
+        benchEl.innerHTML = `<span class="bench-ready">Comparing against ${tierName} ${divName} players</span>`;
+      } else {
+        benchEl.innerHTML = `<span class="bench-loading"><span class="spinner-sm"></span> Collecting ${tierName} ${divName} benchmark data in background...</span>`;
+      }
+    }
 
     const pickList = banner.querySelector(".focus-pick-list");
     let html = "";
 
     if (suggestions.length > 0) {
-      html += `<div class="focus-section-label">Based on your recent games</div>`;
+      html += `<div class="focus-section-label">Based on your last 10 games</div>`;
       html += suggestions.map(s =>
         `<button class="focus-pick-btn focus-pick-data" title="${escHtml(s.metric || "")}">
           ${s.severity === "high" ? '<span class="focus-pick-severity high">!</span> ' : ""}${escHtml(s.rule)}

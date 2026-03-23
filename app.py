@@ -3194,7 +3194,13 @@ def focus_suggestions(account_id):
 
     previous = db.get_previous_focus_rules(account_id, limit=5)
 
-    return jsonify({"suggestions": suggestions, "previous": previous})
+    return jsonify({
+        "suggestions": suggestions,
+        "previous": previous,
+        "benchmarks_ready": benchmarks is not None,
+        "target_tier": target_tier,
+        "target_division": target_div,
+    })
 
 
 # ---- Tier Benchmark Collection ----
@@ -3462,11 +3468,11 @@ def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None) -> l
                   AND m.queue_id IN (420, 440)
                   AND COALESCE(m.is_remake, 0) = 0
                   AND m.game_duration > 600
-                ORDER BY m.game_start DESC LIMIT 20""",
+                ORDER BY m.game_start DESC LIMIT 10""",
             puuids
         ).fetchall()
 
-        if len(player_rows) < 5:
+        if len(player_rows) < 3:
             return []
 
         # Use tier benchmarks if available, otherwise fall back to DB averages
@@ -3611,7 +3617,7 @@ def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None) -> l
         recent_losses = sum(1 for r in player_rows[:5] if not r["win"])
         if recent_losses >= 4:
             suggestions.append({
-                "rule": "Take a break between games \u2014 lost 4 of your last 5",
+                "rule": f"Take a break between games \u2014 lost {recent_losses} of your last 5",
                 "category": "tilt",
                 "severity": "high",
                 "metric": f"{recent_losses}/5 recent losses",

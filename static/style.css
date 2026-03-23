@@ -4501,6 +4501,23 @@ a.ep-champ-name:hover {
   color: var(--accent);
   background: rgba(124, 92, 191, 0.08);
 }
+.focus-benchmark-status {
+  margin-bottom: 0.5rem;
+}
+.bench-ready {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--win);
+  font-weight: 600;
+}
+.bench-loading {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
 .focus-section-label {
   width: 100%;
   font-family: var(--font-mono);
