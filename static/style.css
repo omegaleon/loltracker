@@ -28,6 +28,8 @@
   --text-dim: #506070;
 
   /* Accent */
+  --accent: #7c5cbf;
+  --accent-bright: #9b7de0;
   --gold: #c8aa6e;
   --gold-bright: #f0c850;
   --gold-dim: #785a28;
@@ -4601,9 +4603,9 @@ a.ep-champ-name:hover {
 
 /* Active focus banner */
 .focus-active {
-  background: var(--bg-card);
+  background: rgba(124, 92, 191, 0.12);
   border: 1px solid var(--accent);
-  border-left: 4px solid var(--accent);
+  border-left: 4px solid var(--accent-bright);
   border-radius: var(--radius-md);
   padding: 0.75rem 1.25rem;
   margin-bottom: 0.5rem;
@@ -4613,11 +4615,14 @@ a.ep-champ-name:hover {
 }
 .focus-active-label {
   font-family: var(--font-mono);
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--accent);
+  color: var(--accent-bright);
+  background: var(--accent);
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
   flex-shrink: 0;
 }
 .focus-active-rule {
