@@ -350,6 +350,8 @@ def _migrate(conn):
     _add_col(conn, "participants", "notes", "TEXT DEFAULT NULL")
     # Phase 25: Remake detection
     _add_col(conn, "matches", "is_remake", "BOOLEAN DEFAULT 0")
+    # Phase 27: Focus per-account (was per-profile)
+    _add_col(conn, "focus_sessions", "account_id", "INTEGER DEFAULT NULL")
     conn.commit()
 
     # Backfill participant game_name/tag_line from raw_json where missing
@@ -1957,14 +1959,14 @@ def save_dashboard_layout(profile_id: int, layout_json: str) -> bool:
 
 # ---- Focus Mode ----
 
-def get_active_focus(profile_id: int) -> dict | None:
-    """Get the active (non-ended) focus session for a profile."""
+def get_active_focus(account_id: int) -> dict | None:
+    """Get the active (non-ended) focus session for an account."""
     with get_db() as conn:
         row = conn.execute(
             """SELECT id, rule_text, started_at FROM focus_sessions
-               WHERE profile_id = ? AND ended_at IS NULL
+               WHERE account_id = ? AND ended_at IS NULL
                ORDER BY started_at DESC LIMIT 1""",
-            (profile_id,)
+            (account_id,)
         ).fetchone()
         if not row:
             return None
@@ -1983,18 +1985,31 @@ def get_active_focus(profile_id: int) -> dict | None:
         }
 
 
-def set_focus(profile_id: int, rule_text: str) -> dict:
-    """Set a new focus for the profile. Ends any previous active focus."""
+def get_active_focuses_for_profile(profile_id: int) -> dict:
+    """Get active focus for each account in a profile. Returns {account_id: rule_text}."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT fs.account_id, fs.rule_text
+               FROM focus_sessions fs
+               JOIN accounts a ON a.id = fs.account_id
+               WHERE a.profile_id = ? AND fs.ended_at IS NULL AND fs.account_id IS NOT NULL""",
+            (profile_id,)
+        ).fetchall()
+        return {r["account_id"]: r["rule_text"] for r in rows}
+
+
+def set_focus(account_id: int, profile_id: int, rule_text: str) -> dict:
+    """Set a new focus for an account. Ends any previous active focus on that account."""
     with get_db() as conn:
         conn.execute(
             """UPDATE focus_sessions SET ended_at = CURRENT_TIMESTAMP
-               WHERE profile_id = ? AND ended_at IS NULL""",
-            (profile_id,)
+               WHERE account_id = ? AND ended_at IS NULL""",
+            (account_id,)
         )
         cur = conn.execute(
-            """INSERT INTO focus_sessions (profile_id, rule_text)
-               VALUES (?, ?)""",
-            (profile_id, rule_text)
+            """INSERT INTO focus_sessions (profile_id, account_id, rule_text)
+               VALUES (?, ?, ?)""",
+            (profile_id, account_id, rule_text)
         )
         conn.commit()
         return {
@@ -2005,13 +2020,13 @@ def set_focus(profile_id: int, rule_text: str) -> dict:
         }
 
 
-def end_focus(profile_id: int) -> bool:
-    """End the active focus session."""
+def end_focus(account_id: int) -> bool:
+    """End the active focus session for an account."""
     with get_db() as conn:
         result = conn.execute(
             """UPDATE focus_sessions SET ended_at = CURRENT_TIMESTAMP
-               WHERE profile_id = ? AND ended_at IS NULL""",
-            (profile_id,)
+               WHERE account_id = ? AND ended_at IS NULL""",
+            (account_id,)
         )
         conn.commit()
         return result.rowcount > 0
@@ -2045,23 +2060,23 @@ def get_focus_checkins_batch(session_id: int, match_ids: list) -> dict:
         return {r["match_id"]: bool(r["followed"]) for r in rows}
 
 
-def get_previous_focus_rules(profile_id: int, limit: int = 5) -> list:
-    """Get previously used focus rules (unique, most recent first)."""
+def get_previous_focus_rules(account_id: int, limit: int = 5) -> list:
+    """Get previously used focus rules for an account (unique, most recent first)."""
     with get_db() as conn:
         rows = conn.execute(
             """SELECT rule_text, MAX(started_at) as last_used
                FROM focus_sessions
-               WHERE profile_id = ?
+               WHERE account_id = ?
                GROUP BY rule_text
                ORDER BY last_used DESC
                LIMIT ?""",
-            (profile_id, limit)
+            (account_id, limit)
         ).fetchall()
         return [r["rule_text"] for r in rows]
 
 
-def get_focus_stats(profile_id: int) -> dict:
-    """Get focus adherence stats including winrate correlation."""
+def get_focus_stats(account_id: int) -> dict:
+    """Get focus adherence stats including winrate correlation for an account."""
     with get_db() as conn:
         rows = conn.execute(
             """SELECT fc.followed, p.win
@@ -2069,8 +2084,8 @@ def get_focus_stats(profile_id: int) -> dict:
                JOIN focus_sessions fs ON fs.id = fc.session_id
                JOIN participants p ON p.match_id = fc.match_id
                JOIN accounts a ON a.id = fc.account_id AND a.puuid = p.puuid
-               WHERE fs.profile_id = ?""",
-            (profile_id,)
+               WHERE fs.account_id = ?""",
+            (account_id,)
         ).fetchall()
 
         total = len(rows)

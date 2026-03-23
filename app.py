@@ -3106,47 +3106,56 @@ def save_dashboard_layout(profile_id):
 
 # ---- Focus Mode ----
 
-@app.route("/api/profiles/<int:profile_id>/focus", methods=["GET"])
-def get_focus(profile_id):
-    """Get the active focus session for a profile."""
-    focus = db.get_active_focus(profile_id)
+@app.route("/api/accounts/<int:account_id>/focus", methods=["GET"])
+def get_focus(account_id):
+    """Get the active focus session for an account."""
+    focus = db.get_active_focus(account_id)
     return jsonify({"focus": focus})
 
 
-@app.route("/api/profiles/<int:profile_id>/focus", methods=["POST"])
-def set_focus(profile_id):
-    """Set a new focus. Ends any previous active focus."""
+@app.route("/api/accounts/<int:account_id>/focus", methods=["POST"])
+def set_focus_route(account_id):
+    """Set a new focus for an account. Ends any previous active focus."""
     data = request.get_json(silent=True) or {}
     rule_text = (data.get("rule_text") or "").strip()
     if not rule_text:
         return jsonify({"error": "rule_text required"}), 400
-    focus = db.set_focus(profile_id, rule_text)
+    acct = db.get_account(account_id)
+    if not acct:
+        return jsonify({"error": "Account not found"}), 404
+    focus = db.set_focus(account_id, acct.get("profile_id", 0), rule_text)
     return jsonify({"ok": True, "focus": focus})
 
 
-@app.route("/api/profiles/<int:profile_id>/focus", methods=["DELETE"])
-def end_focus(profile_id):
-    """End the active focus session."""
-    db.end_focus(profile_id)
+@app.route("/api/accounts/<int:account_id>/focus", methods=["DELETE"])
+def end_focus_route(account_id):
+    """End the active focus session for an account."""
+    db.end_focus(account_id)
     return jsonify({"ok": True})
 
 
-@app.route("/api/profiles/<int:profile_id>/focus/checkin", methods=["POST"])
-def focus_checkin(profile_id):
+@app.route("/api/profiles/<int:profile_id>/focus/active", methods=["GET"])
+def get_profile_focuses(profile_id):
+    """Get active focuses for all accounts in a profile (for dashboard badges)."""
+    focuses = db.get_active_focuses_for_profile(profile_id)
+    return jsonify({"focuses": focuses})
+
+
+@app.route("/api/accounts/<int:account_id>/focus/checkin", methods=["POST"])
+def focus_checkin(account_id):
     """Save a focus check-in for a match."""
     data = request.get_json(silent=True) or {}
     session_id = data.get("session_id")
     match_id = data.get("match_id")
-    account_id = data.get("account_id")
     followed = data.get("followed")
-    if not all([session_id, match_id, account_id, followed is not None]):
-        return jsonify({"error": "session_id, match_id, account_id, followed required"}), 400
+    if not all([session_id, match_id, followed is not None]):
+        return jsonify({"error": "session_id, match_id, followed required"}), 400
     db.save_focus_checkin(session_id, match_id, account_id, bool(followed))
     return jsonify({"ok": True})
 
 
-@app.route("/api/profiles/<int:profile_id>/focus/checkins", methods=["GET"])
-def focus_checkins_batch(profile_id):
+@app.route("/api/accounts/<int:account_id>/focus/checkins", methods=["GET"])
+def focus_checkins_batch(account_id):
     """Get check-in results for multiple matches."""
     session_id = request.args.get("session_id", type=int)
     match_ids_str = request.args.get("match_ids", "")
@@ -3157,40 +3166,33 @@ def focus_checkins_batch(profile_id):
     return jsonify({"checkins": checkins})
 
 
-@app.route("/api/profiles/<int:profile_id>/focus/stats", methods=["GET"])
-def focus_stats(profile_id):
+@app.route("/api/accounts/<int:account_id>/focus/stats", methods=["GET"])
+def focus_stats(account_id):
     """Get focus adherence stats with winrate correlation."""
-    stats = db.get_focus_stats(profile_id)
+    stats = db.get_focus_stats(account_id)
     return jsonify(stats)
 
 
-@app.route("/api/profiles/<int:profile_id>/focus/suggestions", methods=["GET"])
-def focus_suggestions(profile_id):
-    """Generate dynamic focus suggestions based on recent game stats."""
-    profile = db.get_profile(profile_id)
-    if not profile:
+@app.route("/api/accounts/<int:account_id>/focus/suggestions", methods=["GET"])
+def focus_suggestions(account_id):
+    """Generate dynamic focus suggestions based on recent game stats for this account."""
+    acct = db.get_account(account_id)
+    if not acct:
         return jsonify({"suggestions": [], "previous": []})
 
-    accounts = profile.get("accounts", [])
-    if not accounts:
-        return jsonify({"suggestions": [], "previous": []})
+    puuids = [acct["puuid"]]
 
-    puuids = [a["puuid"] for a in accounts]
-
-    # Get user's highest rank to determine benchmark target
-    target_tier, target_div = _get_benchmark_target(accounts)
+    # Get this account's rank to determine benchmark target
+    target_tier, target_div = _get_benchmark_target_for_account(acct)
     benchmarks = None
     if target_tier:
         benchmarks = db.get_tier_benchmarks(target_tier, target_div)
         if benchmarks is None:
-            # No cached benchmarks — kick off background collection
             _start_benchmark_collection(target_tier, target_div)
-            # Fall back to DB-based benchmarks for now
 
     suggestions = _generate_focus_suggestions(puuids, benchmarks)
 
-    # Get previously used focus rules (unique, most recent first)
-    previous = db.get_previous_focus_rules(profile_id, limit=5)
+    previous = db.get_previous_focus_rules(account_id, limit=5)
 
     return jsonify({"suggestions": suggestions, "previous": previous})
 
@@ -3244,6 +3246,41 @@ def _get_benchmark_target(accounts: list) -> tuple:
     return target_tier, target_div
 
 
+def _get_benchmark_target_for_account(acct: dict) -> tuple:
+    """Determine benchmark target for a single account."""
+    tier_val = {"IRON": 0, "BRONZE": 1, "SILVER": 2, "GOLD": 3, "PLATINUM": 4,
+                "EMERALD": 5, "DIAMOND": 6, "MASTER": 7, "GRANDMASTER": 8, "CHALLENGER": 9}
+    div_val = {"IV": 0, "III": 1, "II": 2, "I": 3}
+
+    best_score = -1
+    best_tier = None
+    best_div = None
+    for r in acct.get("ranks", []):
+        if r.get("queue_type") != "RANKED_SOLO_5x5":
+            continue
+        t = (r.get("tier") or "").upper()
+        d = (r.get("rank") or "").upper()
+        score = tier_val.get(t, 0) * 10 + div_val.get(d, 0)
+        if score > best_score:
+            best_score = score
+            best_tier = t
+            best_div = d
+
+    if not best_tier:
+        return None, None
+
+    idx = tier_val.get(best_tier, 0)
+    target_idx = min(idx + 1, len(_TIER_ORDER) - 1)
+    target_tier = _TIER_ORDER[target_idx]
+
+    if target_tier in ("MASTER", "GRANDMASTER", "CHALLENGER"):
+        target_div = "I"
+    else:
+        target_div = best_div or "IV"
+
+    return target_tier, target_div
+
+
 def _start_benchmark_collection(target_tier: str, target_div: str):
     """Start background benchmark collection if not already in progress."""
     key = f"{target_tier}_{target_div}"
@@ -3280,29 +3317,11 @@ def _collect_tier_benchmarks(target_tier: str, target_div: str):
         logger.warning("No league entries found for %s %s", target_tier, target_div)
         return
 
-    # Sample 30 random players
+    # Sample 30 random players — league-exp-v4 includes puuid directly
     sample_size = min(30, len(entries))
     sampled = random.sample(entries, sample_size)
-
-    # Resolve PUUIDs (need summoner lookup) — parallelized
-    def _resolve_puuid(entry):
-        sid = entry.get("summonerId")
-        if not sid:
-            return None
-        try:
-            summoner = api.get_summoner_by_id(sid)
-            return summoner.get("puuid") if summoner else None
-        except Exception:
-            return None
-
-    puuids = []
-    workers = min(10, sample_size)
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_resolve_puuid, e) for e in sampled]
-        for f in as_completed(futures):
-            result = f.result()
-            if result:
-                puuids.append(result)
+    puuids = [e["puuid"] for e in sampled if e.get("puuid")]
+    workers = min(10, len(puuids))
 
     if not puuids:
         logger.warning("No PUUIDs resolved for %s %s", target_tier, target_div)

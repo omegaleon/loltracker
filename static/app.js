@@ -544,9 +544,6 @@ document.addEventListener("DOMContentLoaded", () => {
     gridEl.style.display = "";
     gridEl.innerHTML = "";
 
-    // Load focus banner
-    _loadFocusBanner();
-
     // Fixed widget order — build DOM first, then render content
     // (render functions use getElementById which needs elements in DOM)
 
@@ -569,7 +566,27 @@ document.addEventListener("DOMContentLoaded", () => {
       sorted.forEach(acct => accountsGrid.appendChild(createAccountCard(acct)));
       loadSparklines();
       loadSessionStats();
+      _loadFocusBadges();
     }
+  }
+
+  async function _loadFocusBadges() {
+    if (!currentProfileId) return;
+    try {
+      const res = await fetch(`/api/profiles/${currentProfileId}/focus/active`);
+      const data = await res.json();
+      const focuses = data.focuses || {};
+      for (const [accountId, ruleText] of Object.entries(focuses)) {
+        const card = accountsGrid ? accountsGrid.querySelector(`[data-account-id="${accountId}"]`) : null;
+        if (card && !card.querySelector(".focus-card-badge")) {
+          const badge = document.createElement("div");
+          badge.className = "focus-card-badge";
+          badge.title = ruleText;
+          badge.textContent = "FOCUS";
+          card.querySelector(".account-card-header").appendChild(badge);
+        }
+      }
+    } catch (e) { /* ignore */ }
   }
 
   function renderQuickStats(accounts) {
@@ -1390,6 +1407,9 @@ document.addEventListener("DOMContentLoaded", () => {
     stopBackfillPolling();
     detailAccountName.textContent = `${acct.game_name}#${acct.tag_line}`;
     detailMatches.innerHTML = '<div class="status-bar"><span class="spinner"></span> Loading matches...</div>';
+
+    // Load focus for this account
+    _loadFocusBanner();
 
     // Check if a backfill is already running for this account
     try {
@@ -3593,12 +3613,12 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentFocus = null; // {id, rule_text, started_at, total_checkins, followed_count}
 
   async function _loadFocusBanner() {
-    if (!currentProfileId) return;
-    const banner = document.getElementById("focus-banner");
+    if (!currentDetailAccount) return;
+    const banner = document.getElementById("account-focus-banner");
     if (!banner) return;
 
     try {
-      const res = await fetch(`/api/profiles/${currentProfileId}/focus`);
+      const res = await fetch(`/api/accounts/${currentDetailAccount.id}/focus`);
       const data = await res.json();
       currentFocus = data.focus;
     } catch (e) {
@@ -3630,7 +3650,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let suggestions = [];
     let previous = [];
     try {
-      const res = await fetch(`/api/profiles/${currentProfileId}/focus/suggestions`);
+      const res = await fetch(`/api/accounts/${currentDetailAccount.id}/focus/suggestions`);
       const data = await res.json();
       suggestions = data.suggestions || [];
       previous = data.previous || [];
@@ -3712,7 +3732,7 @@ document.addEventListener("DOMContentLoaded", () => {
       _renderFocusPicker(banner);
     });
     document.getElementById("focus-end-btn").addEventListener("click", async () => {
-      await fetch(`/api/profiles/${currentProfileId}/focus`, { method: "DELETE" });
+      await fetch(`/api/accounts/${currentDetailAccount.id}/focus`, { method: "DELETE" });
       currentFocus = null;
       _renderFocusPicker(banner);
     });
@@ -3726,7 +3746,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!panel || !currentProfileId) return;
 
     try {
-      const res = await fetch(`/api/profiles/${currentProfileId}/focus/stats`);
+      const res = await fetch(`/api/accounts/${currentDetailAccount.id}/focus/stats`);
       const stats = await res.json();
 
       if (!stats || stats.total < 5) {
@@ -3775,7 +3795,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function _setFocus(ruleText) {
     try {
-      const res = await fetch(`/api/profiles/${currentProfileId}/focus`, {
+      const res = await fetch(`/api/accounts/${currentDetailAccount.id}/focus`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rule_text: ruleText }),
@@ -3783,7 +3803,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       if (data.ok) {
         currentFocus = data.focus;
-        const banner = document.getElementById("focus-banner");
+        const banner = document.getElementById("account-focus-banner");
         _renderActiveFocus(banner);
       }
     } catch (e) { /* ignore */ }
@@ -3795,7 +3815,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function _loadFocusCheckins(matchIds) {
     if (!currentFocus || !matchIds.length) return;
     try {
-      const res = await fetch(`/api/profiles/${currentProfileId}/focus/checkins?session_id=${currentFocus.id}&match_ids=${matchIds.join(",")}`);
+      const res = await fetch(`/api/accounts/${currentDetailAccount.id}/focus/checkins?session_id=${currentFocus.id}&match_ids=${matchIds.join(",")}`);
       const data = await res.json();
       if (data.checkins) Object.assign(_focusCheckinCache, data.checkins);
     } catch (e) { /* ignore */ }
@@ -3832,13 +3852,12 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.addEventListener("click", async () => {
         const followed = btn.dataset.followed === "true";
         const accountId = match._account_id;
-        await fetch(`/api/profiles/${currentProfileId}/focus/checkin`, {
+        await fetch(`/api/accounts/${currentDetailAccount.id}/focus/checkin`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             session_id: currentFocus.id,
             match_id: match.match_id,
-            account_id: accountId,
             followed: followed,
           }),
         });
