@@ -3668,6 +3668,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="btn btn-secondary btn-sm" id="focus-end-btn">End</button>
         </div>
       </div>
+      <div id="focus-stats-panel"></div>
     `;
 
     document.getElementById("focus-change-btn").addEventListener("click", () => {
@@ -3678,6 +3679,61 @@ document.addEventListener("DOMContentLoaded", () => {
       currentFocus = null;
       _renderFocusPicker(banner);
     });
+
+    // Load winrate correlation stats
+    _loadFocusStats();
+  }
+
+  async function _loadFocusStats() {
+    const panel = document.getElementById("focus-stats-panel");
+    if (!panel || !currentProfileId) return;
+
+    try {
+      const res = await fetch(`/api/profiles/${currentProfileId}/focus/stats`);
+      const stats = await res.json();
+
+      if (!stats || stats.total < 5) {
+        // Not enough data yet
+        if (stats.total > 0 && stats.total < 5) {
+          panel.innerHTML = `<div class="focus-stats-hint">${5 - stats.total} more check-ins to unlock winrate insights</div>`;
+        }
+        return;
+      }
+
+      const followedWR = stats.followed_winrate !== null ? stats.followed_winrate + "%" : "—";
+      const notFollowedWR = stats.not_followed_winrate !== null ? stats.not_followed_winrate + "%" : "—";
+      const delta = (stats.followed_winrate !== null && stats.not_followed_winrate !== null)
+        ? stats.followed_winrate - stats.not_followed_winrate : null;
+      const deltaStr = delta !== null
+        ? `<span class="focus-delta ${delta > 0 ? "positive" : delta < 0 ? "negative" : ""}">${delta > 0 ? "+" : ""}${delta}%</span>`
+        : "";
+
+      panel.innerHTML = `
+        <div class="focus-stats">
+          <div class="focus-stat-item">
+            <span class="focus-stat-label">Adherence</span>
+            <span class="focus-stat-value">${stats.adherence_pct}%</span>
+            <span class="focus-stat-sub">${stats.followed_count}/${stats.total} games</span>
+          </div>
+          <div class="focus-stat-item">
+            <span class="focus-stat-label">WR when focused</span>
+            <span class="focus-stat-value focus-stat-good">${followedWR}</span>
+            <span class="focus-stat-sub">${stats.followed_count} games</span>
+          </div>
+          <div class="focus-stat-item">
+            <span class="focus-stat-label">WR when not</span>
+            <span class="focus-stat-value focus-stat-bad">${notFollowedWR}</span>
+            <span class="focus-stat-sub">${stats.not_followed_count} games</span>
+          </div>
+          ${delta !== null ? `
+          <div class="focus-stat-item">
+            <span class="focus-stat-label">Impact</span>
+            <span class="focus-stat-value">${deltaStr}</span>
+            <span class="focus-stat-sub">WR difference</span>
+          </div>` : ""}
+        </div>
+      `;
+    } catch (e) { /* ignore */ }
   }
 
   async function _setFocus(ruleText) {
