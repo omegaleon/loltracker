@@ -3190,16 +3190,20 @@ def focus_suggestions(account_id):
         if benchmarks is None:
             _start_benchmark_collection(target_tier, target_div)
 
-    suggestions = _generate_focus_suggestions(puuids, benchmarks)
+    position = request.args.get("position")
+    result = _generate_focus_suggestions(puuids, benchmarks, position)
 
     previous = db.get_previous_focus_rules(account_id, limit=5)
 
     return jsonify({
-        "suggestions": suggestions,
+        "suggestions": result.get("suggestions", []),
         "previous": previous,
         "benchmarks_ready": benchmarks is not None,
         "target_tier": target_tier,
         "target_division": target_div,
+        "positions": result.get("positions", {}),
+        "selected_position": result.get("selected_position", ""),
+        "games_analyzed": result.get("games_analyzed", 0),
     })
 
 
@@ -3323,8 +3327,8 @@ def _collect_tier_benchmarks(target_tier: str, target_div: str):
         logger.warning("No league entries found for %s %s", target_tier, target_div)
         return
 
-    # Sample 30 random players — league-exp-v4 includes puuid directly
-    sample_size = min(30, len(entries))
+    # Sample 50 random players to ensure decent coverage per position
+    sample_size = min(50, len(entries))
     sampled = random.sample(entries, sample_size)
     puuids = [e["puuid"] for e in sampled if e.get("puuid")]
     workers = min(10, len(puuids))
@@ -3451,14 +3455,20 @@ def _refresh_stale_benchmarks():
         logger.exception("Scheduler: benchmark refresh failed")
 
 
-def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None) -> list:
-    """Analyze recent ranked games and generate actionable focus suggestions."""
+def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None, position: str = None) -> dict:
+    """Analyze recent ranked games and generate actionable focus suggestions.
+
+    Returns {suggestions: [...], positions: {pos: count}, selected_position: str}.
+    If position is None, defaults to most played.
+    """
     suggestions = []
     placeholders = ",".join("?" for _ in puuids)
+    pos_labels = {"TOP": "Top", "JUNGLE": "Jungle", "MIDDLE": "Mid",
+                  "BOTTOM": "ADC", "UTILITY": "Support"}
 
     with db.get_db() as conn:
-        # Get player's recent stats (last 20 ranked games)
-        player_rows = conn.execute(
+        # Get player's recent stats (last 20 ranked games, ALL positions — for position counts)
+        all_rows = conn.execute(
             f"""SELECT p.position, p.kills, p.deaths, p.assists, p.cs,
                        p.vision_score, p.wards_placed, p.total_time_dead,
                        p.win, m.game_duration
@@ -3468,16 +3478,35 @@ def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None) -> l
                   AND m.queue_id IN (420, 440)
                   AND COALESCE(m.is_remake, 0) = 0
                   AND m.game_duration > 600
-                ORDER BY m.game_start DESC LIMIT 10""",
+                ORDER BY m.game_start DESC LIMIT 20""",
             puuids
         ).fetchall()
 
+        # Count positions played
+        pos_counts = {}
+        for r in all_rows:
+            pos = r["position"]
+            if pos:
+                pos_counts[pos] = pos_counts.get(pos, 0) + 1
+
+        if not pos_counts:
+            return {"suggestions": [], "positions": {}, "selected_position": ""}
+
+        # Determine selected position
+        main_pos = position if (position and position in pos_counts) else max(pos_counts, key=pos_counts.get)
+
+        # Filter to only selected position, limit to 10
+        player_rows = [r for r in all_rows if r["position"] == main_pos][:10]
+
         if len(player_rows) < 3:
-            return []
+            return {
+                "suggestions": [],
+                "positions": {pos_labels.get(p, p): c for p, c in pos_counts.items()},
+                "selected_position": main_pos,
+            }
 
         # Use tier benchmarks if available, otherwise fall back to DB averages
         if tier_benchmarks:
-            # Remap keys for consistency (tier benchmarks use teamPosition names)
             benchmarks = {}
             for pos, stats in tier_benchmarks.items():
                 benchmarks[pos] = {
@@ -3504,7 +3533,7 @@ def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None) -> l
             benchmarks = {r["position"]: dict(r) for r in bench_rows}
             benchmark_source = "db"
 
-        # Compute player averages
+        # Compute player averages (position-filtered)
         total_games = len(player_rows)
         avg_deaths = sum(r["deaths"] for r in player_rows) / total_games
         avg_kills = sum(r["kills"] for r in player_rows) / total_games
@@ -3525,17 +3554,8 @@ def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None) -> l
         deaths_in_wins = sum(r["deaths"] for r in wins) / max(len(wins), 1)
         deaths_in_losses = sum(r["deaths"] for r in losses) / max(len(losses), 1)
 
-        # Find most played position
-        pos_counts = {}
-        for r in player_rows:
-            pos = r["position"]
-            if pos:
-                pos_counts[pos] = pos_counts.get(pos, 0) + 1
-        main_pos = max(pos_counts, key=pos_counts.get) if pos_counts else ""
         bench = benchmarks.get(main_pos, {})
-        pos_label = {"TOP": "Top", "JUNGLE": "Jungle", "MIDDLE": "Mid",
-                     "BOTTOM": "ADC", "UTILITY": "Support"}.get(main_pos, main_pos)
-        # Label for benchmark comparison source
+        pos_label = pos_labels.get(main_pos, main_pos)
         bench_label = pos_label if benchmark_source == "db" else f"{pos_label} (tier above)"
 
         # --- Generate suggestions based on data ---
@@ -3627,7 +3647,12 @@ def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None) -> l
     sev_order = {"high": 0, "medium": 1, "low": 2}
     suggestions.sort(key=lambda s: sev_order.get(s["severity"], 2))
 
-    return suggestions
+    return {
+        "suggestions": suggestions,
+        "positions": {pos_labels.get(p, p): c for p, c in pos_counts.items()},
+        "selected_position": main_pos,
+        "games_analyzed": total_games,
+    }
 
 
 @app.route("/api/accounts/<int:account_id>/performance-score", methods=["GET"])

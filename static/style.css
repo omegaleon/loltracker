@@ -4518,6 +4518,33 @@ a.ep-champ-name:hover {
   align-items: center;
   gap: 0.4rem;
 }
+.focus-pos-selector {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+.focus-pos-btn {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.focus-pos-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.focus-pos-btn.active {
+  background: var(--accent);
+  color: var(--bg-base);
+  border-color: var(--accent);
+  font-weight: 700;
+}
 .focus-section-label {
   width: 100%;
   font-family: var(--font-mono);

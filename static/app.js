@@ -3648,19 +3648,30 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
     _wireFocusCustomInput();
 
+    await _loadFocusSuggestions(banner);
+  }
+
+  async function _loadFocusSuggestions(banner, position) {
     let suggestions = [];
     let previous = [];
     let benchmarksReady = false;
     let targetTier = "";
     let targetDiv = "";
+    let positions = {};
+    let selectedPosition = "";
+    let gamesAnalyzed = 0;
+    const posParam = position ? `?position=${encodeURIComponent(position)}` : "";
     try {
-      const res = await fetch(`/api/accounts/${currentDetailAccount.id}/focus/suggestions`);
+      const res = await fetch(`/api/accounts/${currentDetailAccount.id}/focus/suggestions${posParam}`);
       const data = await res.json();
       suggestions = data.suggestions || [];
       previous = data.previous || [];
       benchmarksReady = data.benchmarks_ready || false;
       targetTier = data.target_tier || "";
       targetDiv = data.target_division || "";
+      positions = data.positions || {};
+      selectedPosition = data.selected_position || "";
+      gamesAnalyzed = data.games_analyzed || 0;
     } catch (e) { /* ignore */ }
 
     // Show benchmark status
@@ -3678,8 +3689,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const pickList = banner.querySelector(".focus-pick-list");
     let html = "";
 
+    // Position selector
+    const posKeys = Object.entries(positions);
+    if (posKeys.length > 1) {
+      const posMap = {"Top": "TOP", "Jungle": "JUNGLE", "Mid": "MIDDLE", "ADC": "BOTTOM", "Support": "UTILITY"};
+      html += `<div class="focus-pos-selector">`;
+      posKeys.forEach(([label, count]) => {
+        const posKey = posMap[label] || label;
+        const active = posKey === selectedPosition ? " active" : "";
+        html += `<button class="focus-pos-btn${active}" data-pos="${posKey}">${label} (${count})</button>`;
+      });
+      html += `</div>`;
+    }
+
     if (suggestions.length > 0) {
-      html += `<div class="focus-section-label">Based on your last 10 games</div>`;
+      html += `<div class="focus-section-label">Based on ${gamesAnalyzed} recent games as ${
+        {"TOP":"Top","JUNGLE":"Jungle","MIDDLE":"Mid","BOTTOM":"ADC","UTILITY":"Support"}[selectedPosition] || selectedPosition
+      }</div>`;
       html += suggestions.map(s =>
         `<button class="focus-pick-btn focus-pick-data" title="${escHtml(s.metric || "")}">
           ${s.severity === "high" ? '<span class="focus-pick-severity high">!</span> ' : ""}${escHtml(s.rule)}
@@ -3706,6 +3732,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const sev = btn.querySelector(".focus-pick-severity");
         const text = sev ? btn.textContent.replace(sev.textContent, "").trim() : btn.textContent.trim();
         _setFocus(text);
+      });
+    });
+
+    // Position switcher
+    pickList.querySelectorAll(".focus-pos-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        pickList.innerHTML = '<span class="spinner-sm"></span> Reloading...';
+        _loadFocusSuggestions(banner, btn.dataset.pos);
       });
     });
   }
