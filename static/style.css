@@ -440,6 +440,9 @@ body {
 }
 
 .account-remove {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
   width: 24px;
   height: 24px;
   display: flex;
@@ -453,6 +456,7 @@ body {
   font-size: 1rem;
   transition: all 0.15s;
   opacity: 0;
+  z-index: 1;
 }
 
 .account-card:hover .account-remove {
@@ -4677,13 +4681,12 @@ a.ep-champ-name:hover {
 }
 .focus-card-badge {
   font-family: var(--font-mono);
-  font-size: 0.55rem;
+  font-size: 0.6rem;
   font-weight: 700;
-  padding: 0.1rem 0.35rem;
+  padding: 0.15rem 0.4rem;
   border-radius: 3px;
-  background: rgba(124, 92, 191, 0.15);
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg-base);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }

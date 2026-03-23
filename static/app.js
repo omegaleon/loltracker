@@ -686,9 +686,9 @@ document.addEventListener("DOMContentLoaded", () => {
          <button class="season-history-toggle" type="button">Show ${seasonRows.length - VISIBLE_SEASONS} more</button>` : "");
 
     card.innerHTML = `
+      <button class="account-remove" data-id="${acct.id}" title="Remove account" aria-label="Remove ${escHtml(acct.game_name)}">&times;</button>
       <div class="account-card-header">
         <div class="account-name">${acct.game_name}<span class="tag">#${acct.tag_line}</span></div>
-        <button class="account-remove" data-id="${acct.id}" title="Remove account" aria-label="Remove ${escHtml(acct.game_name)}">&times;</button>
       </div>
       <div class="account-queues">
         ${isPastSeason && scrapedRank
