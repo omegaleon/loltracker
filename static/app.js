@@ -3612,32 +3612,69 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function _renderFocusPicker(banner) {
-    const picks = FOCUS_QUICK_PICKS.map(r =>
-      `<button class="focus-pick-btn">${escHtml(r)}</button>`
-    ).join("");
-
+  async function _renderFocusPicker(banner) {
     banner.innerHTML = `
       <div class="focus-picker">
         <div class="focus-picker-header">
           <span class="focus-picker-title">What's your focus today?</span>
         </div>
-        <div class="focus-pick-list">${picks}</div>
+        <div class="focus-pick-list"><span class="spinner-sm"></span> Analyzing your recent games...</div>
         <div class="focus-custom">
           <input type="text" class="focus-custom-input" id="focus-custom-input" placeholder="Or type your own..." maxlength="200">
           <button class="btn btn-primary btn-sm" id="focus-custom-set">Set</button>
         </div>
       </div>
     `;
+    _wireFocusCustomInput();
 
-    // Wire quick-pick buttons
-    banner.querySelectorAll(".focus-pick-btn").forEach(btn => {
-      btn.addEventListener("click", () => _setFocus(btn.textContent));
+    let suggestions = [];
+    let previous = [];
+    try {
+      const res = await fetch(`/api/profiles/${currentProfileId}/focus/suggestions`);
+      const data = await res.json();
+      suggestions = data.suggestions || [];
+      previous = data.previous || [];
+    } catch (e) { /* ignore */ }
+
+    const pickList = banner.querySelector(".focus-pick-list");
+    let html = "";
+
+    if (suggestions.length > 0) {
+      html += `<div class="focus-section-label">Based on your recent games</div>`;
+      html += suggestions.map(s =>
+        `<button class="focus-pick-btn focus-pick-data" title="${escHtml(s.metric || "")}">
+          ${s.severity === "high" ? '<span class="focus-pick-severity high">!</span> ' : ""}${escHtml(s.rule)}
+        </button>`
+      ).join("");
+    }
+
+    if (previous.length > 0) {
+      html += `<div class="focus-section-label">Previously used</div>`;
+      html += previous.map(r =>
+        `<button class="focus-pick-btn focus-pick-prev">${escHtml(r)}</button>`
+      ).join("");
+    }
+
+    html += `<div class="focus-section-label">General</div>`;
+    html += FOCUS_QUICK_PICKS.map(r =>
+      `<button class="focus-pick-btn">${escHtml(r)}</button>`
+    ).join("");
+
+    pickList.innerHTML = html;
+
+    pickList.querySelectorAll(".focus-pick-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const sev = btn.querySelector(".focus-pick-severity");
+        const text = sev ? btn.textContent.replace(sev.textContent, "").trim() : btn.textContent.trim();
+        _setFocus(text);
+      });
     });
+  }
 
-    // Wire custom input
+  function _wireFocusCustomInput() {
     const customInput = document.getElementById("focus-custom-input");
     const customBtn = document.getElementById("focus-custom-set");
+    if (!customInput || !customBtn) return;
     customBtn.addEventListener("click", () => {
       const val = customInput.value.trim();
       if (val) _setFocus(val);

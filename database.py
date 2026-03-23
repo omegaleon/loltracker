@@ -2029,6 +2029,21 @@ def get_focus_checkins_batch(session_id: int, match_ids: list) -> dict:
         return {r["match_id"]: bool(r["followed"]) for r in rows}
 
 
+def get_previous_focus_rules(profile_id: int, limit: int = 5) -> list:
+    """Get previously used focus rules (unique, most recent first)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT rule_text, MAX(started_at) as last_used
+               FROM focus_sessions
+               WHERE profile_id = ?
+               GROUP BY rule_text
+               ORDER BY last_used DESC
+               LIMIT ?""",
+            (profile_id, limit)
+        ).fetchall()
+        return [r["rule_text"] for r in rows]
+
+
 def get_focus_stats(profile_id: int) -> dict:
     """Get focus adherence stats including winrate correlation."""
     with get_db() as conn:

@@ -4501,6 +4501,36 @@ a.ep-champ-name:hover {
   color: var(--accent);
   background: rgba(124, 92, 191, 0.08);
 }
+.focus-section-label {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-top: 0.4rem;
+}
+.focus-section-label:first-child {
+  margin-top: 0;
+}
+.focus-pick-data {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: rgba(124, 92, 191, 0.06);
+}
+.focus-pick-data:hover {
+  background: rgba(124, 92, 191, 0.15);
+}
+.focus-pick-severity {
+  display: inline;
+  font-weight: 900;
+  color: var(--loss);
+}
+.focus-pick-prev {
+  border-style: dashed;
+  color: var(--text-muted);
+}
 .focus-custom {
   display: flex;
   gap: 0.4rem;

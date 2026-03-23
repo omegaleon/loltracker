@@ -3164,6 +3164,190 @@ def focus_stats(profile_id):
     return jsonify(stats)
 
 
+@app.route("/api/profiles/<int:profile_id>/focus/suggestions", methods=["GET"])
+def focus_suggestions(profile_id):
+    """Generate dynamic focus suggestions based on recent game stats."""
+    profile = db.get_profile(profile_id)
+    if not profile:
+        return jsonify({"suggestions": [], "previous": []})
+
+    accounts = db.get_accounts_for_profile(profile_id)
+    puuids = [a["puuid"] for a in accounts]
+    if not puuids:
+        return jsonify({"suggestions": [], "previous": []})
+
+    suggestions = _generate_focus_suggestions(puuids)
+
+    # Get previously used focus rules (unique, most recent first)
+    previous = db.get_previous_focus_rules(profile_id, limit=5)
+
+    return jsonify({"suggestions": suggestions, "previous": previous})
+
+
+def _generate_focus_suggestions(puuids: list) -> list:
+    """Analyze recent ranked games and generate actionable focus suggestions."""
+    suggestions = []
+    placeholders = ",".join("?" for _ in puuids)
+
+    with db.get_db() as conn:
+        # Get player's recent stats (last 20 ranked games)
+        player_rows = conn.execute(
+            f"""SELECT p.position, p.kills, p.deaths, p.assists, p.cs,
+                       p.vision_score, p.wards_placed, p.total_time_dead,
+                       p.win, m.game_duration
+                FROM participants p
+                JOIN matches m ON m.match_id = p.match_id
+                WHERE p.puuid IN ({placeholders})
+                  AND m.queue_id IN (420, 440)
+                  AND COALESCE(m.is_remake, 0) = 0
+                  AND m.game_duration > 600
+                ORDER BY m.game_start DESC LIMIT 20""",
+            puuids
+        ).fetchall()
+
+        if len(player_rows) < 5:
+            return []
+
+        # Get position benchmarks from all players in DB
+        bench_rows = conn.execute(
+            """SELECT p.position,
+                      AVG(p.deaths) as avg_deaths,
+                      AVG(CAST(p.cs AS FLOAT) / (m.game_duration/60.0)) as avg_csm,
+                      AVG(p.vision_score) as avg_vis
+               FROM participants p
+               JOIN matches m ON m.match_id = p.match_id
+               WHERE m.queue_id IN (420, 440)
+                 AND COALESCE(m.is_remake, 0) = 0
+                 AND m.game_duration > 600
+                 AND p.position != ''
+               GROUP BY p.position"""
+        ).fetchall()
+        benchmarks = {r["position"]: dict(r) for r in bench_rows}
+
+        # Compute player averages
+        total_games = len(player_rows)
+        avg_deaths = sum(r["deaths"] for r in player_rows) / total_games
+        avg_kills = sum(r["kills"] for r in player_rows) / total_games
+        avg_assists = sum(r["assists"] for r in player_rows) / total_games
+        avg_cs_per_min = sum(
+            r["cs"] / (r["game_duration"] / 60.0)
+            for r in player_rows if r["game_duration"] > 0
+        ) / total_games
+        avg_vision = sum(r["vision_score"] for r in player_rows) / total_games
+        avg_dead_pct = sum(
+            r["total_time_dead"] / r["game_duration"] * 100
+            for r in player_rows if r["game_duration"] > 0
+        ) / total_games
+        kda = (avg_kills + avg_assists) / max(avg_deaths, 1)
+
+        wins = [r for r in player_rows if r["win"]]
+        losses = [r for r in player_rows if not r["win"]]
+        deaths_in_wins = sum(r["deaths"] for r in wins) / max(len(wins), 1)
+        deaths_in_losses = sum(r["deaths"] for r in losses) / max(len(losses), 1)
+
+        # Find most played position
+        pos_counts = {}
+        for r in player_rows:
+            pos = r["position"]
+            if pos:
+                pos_counts[pos] = pos_counts.get(pos, 0) + 1
+        main_pos = max(pos_counts, key=pos_counts.get) if pos_counts else ""
+        bench = benchmarks.get(main_pos, {})
+        pos_label = {"TOP": "Top", "JUNGLE": "Jungle", "MIDDLE": "Mid",
+                     "BOTTOM": "ADC", "UTILITY": "Support"}.get(main_pos, main_pos)
+
+        # --- Generate suggestions based on data ---
+
+        # 1. High deaths vs position benchmark
+        bench_deaths = bench.get("avg_deaths", 6.0)
+        if avg_deaths > bench_deaths * 1.2:
+            suggestions.append({
+                "rule": f"Reduce deaths \u2014 you average {avg_deaths:.1f}/game vs {bench_deaths:.1f} for {pos_label}",
+                "category": "deaths",
+                "severity": "high" if avg_deaths > bench_deaths * 1.5 else "medium",
+                "metric": f"{avg_deaths:.1f} deaths/game",
+            })
+
+        # 2. Low CS/min (non-support)
+        if main_pos != "UTILITY":
+            bench_csm = bench.get("avg_csm", 6.5)
+            if avg_cs_per_min < bench_csm * 0.85:
+                suggestions.append({
+                    "rule": f"Focus on farming \u2014 {avg_cs_per_min:.1f} CS/min vs {bench_csm:.1f} average for {pos_label}",
+                    "category": "cs",
+                    "severity": "high" if avg_cs_per_min < bench_csm * 0.7 else "medium",
+                    "metric": f"{avg_cs_per_min:.1f} CS/min",
+                })
+
+        # 3. Low vision score
+        bench_vis = bench.get("avg_vis", 25.0)
+        if avg_vision < bench_vis * 0.7:
+            suggestions.append({
+                "rule": f"Ward more \u2014 {avg_vision:.0f} vision/game vs {bench_vis:.0f} for {pos_label}",
+                "category": "vision",
+                "severity": "medium",
+                "metric": f"{avg_vision:.0f} vision score",
+            })
+
+        # 4. Deaths much higher in losses than wins
+        if len(losses) >= 3 and deaths_in_losses > deaths_in_wins * 1.5:
+            suggestions.append({
+                "rule": f"Play safer when losing \u2014 {deaths_in_losses:.1f} deaths in losses vs {deaths_in_wins:.1f} in wins",
+                "category": "tilt-deaths",
+                "severity": "high",
+                "metric": f"{deaths_in_losses:.1f} deaths in losses",
+            })
+
+        # 5. High time spent dead
+        if avg_dead_pct > 15:
+            suggestions.append({
+                "rule": f"Stay alive longer \u2014 you spend {avg_dead_pct:.0f}% of game time dead",
+                "category": "dead-time",
+                "severity": "high" if avg_dead_pct > 20 else "medium",
+                "metric": f"{avg_dead_pct:.0f}% time dead",
+            })
+
+        # 6. Low KDA
+        if kda < 2.0:
+            suggestions.append({
+                "rule": f"Pick better fights \u2014 your KDA is {kda:.1f}, aim for 2.0+",
+                "category": "kda",
+                "severity": "high" if kda < 1.5 else "medium",
+                "metric": f"{kda:.1f} KDA",
+            })
+
+        # 7. Early death pattern — high death rate in first half of games
+        # Proxy: check deaths per minute — players who die early have high deaths/min
+        avg_deaths_per_min = sum(
+            r["deaths"] / (r["game_duration"] / 60.0)
+            for r in player_rows if r["game_duration"] > 0
+        ) / total_games
+        bench_dpm = bench_deaths / 30.0 if bench_deaths else 0.2  # assume ~30 min avg game
+        if avg_deaths_per_min > bench_dpm * 1.3:
+            suggestions.append({
+                "rule": f"Dying too frequently \u2014 {avg_deaths_per_min:.2f} deaths/min, slow down early fights",
+                "category": "early-deaths",
+                "severity": "high" if avg_deaths_per_min > bench_dpm * 1.6 else "medium",
+                "metric": f"{avg_deaths_per_min:.2f} deaths/min",
+            })
+
+        # 8. Losing streak (check recent results)
+        recent_losses = sum(1 for r in player_rows[:5] if not r["win"])
+        if recent_losses >= 4:
+            suggestions.append({
+                "rule": "Take a break between games \u2014 lost 4 of your last 5",
+                "category": "tilt",
+                "severity": "high",
+                "metric": f"{recent_losses}/5 recent losses",
+            })
+
+    # Sort by severity (high first)
+    sev_order = {"high": 0, "medium": 1, "low": 2}
+    suggestions.sort(key=lambda s: sev_order.get(s["severity"], 2))
+
+    return suggestions
+
+
 @app.route("/api/accounts/<int:account_id>/performance-score", methods=["GET"])
 def account_performance_score(account_id):
     """Compute GPI-style performance score vs lobby averages."""
