@@ -806,6 +806,7 @@ body {
 }
 
 .match-stat .sv { color: var(--text-secondary); font-weight: 700; }
+.match-stat .pm { color: var(--text-dim); font-size: 0.7rem; font-weight: 400; }
 
 .match-meta {
   font-family: var(--font-mono);

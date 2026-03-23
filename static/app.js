@@ -1558,10 +1558,11 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
           <div class="match-items">${renderItems(m.items, ver)}${renderBootsItem(m.role_bound_item, ver)}</div>
           <div class="match-bottom-line">
-            <span class="match-stat"><span class="sv">${m.cs}</span> CS</span>
-            <span class="match-stat"><span class="sv">${formatK(m.gold)}</span> Gold</span>
-            <span class="match-stat"><span class="sv">${formatK(m.damage)}</span> Dmg</span>
-            <span class="match-stat"><span class="sv">${m.vision}</span> Vis</span>
+            ${(() => { const mins = (m.game_duration || 0) / 60; const pm = mins > 0; return `
+            <span class="match-stat" title="CS per minute"><span class="sv">${m.cs}</span> CS${pm ? ` <span class="pm">(${(m.cs / mins).toFixed(1)}/m)</span>` : ""}</span>
+            <span class="match-stat" title="Gold per minute"><span class="sv">${formatK(m.gold)}</span> Gold${pm ? ` <span class="pm">(${formatK(Math.round(m.gold / mins))}/m)</span>` : ""}</span>
+            <span class="match-stat" title="Damage per minute"><span class="sv">${formatK(m.damage)}</span> Dmg${pm ? ` <span class="pm">(${formatK(Math.round(m.damage / mins))}/m)</span>` : ""}</span>
+            <span class="match-stat"><span class="sv">${m.vision}</span> Vis</span>`; })()}
             <span class="match-meta">${m.queue_name} · ${m.game_duration_str} · ${m.date_str}</span>
             <span class="match-expand-hint">Click to expand</span>
           </div>

@@ -191,6 +191,13 @@ def riot_txt():
     return app.send_static_file("riot.txt")
 
 
+# Mark user activity on any API request so the scheduler defers
+@app.before_request
+def _mark_user_active():
+    if request.path.startswith("/api/"):
+        _touch_user_activity()
+
+
 # ---- Profile API -----------------------------------------------------------
 
 @app.route("/api/profiles", methods=["GET"])
@@ -780,6 +787,7 @@ def _format_matches(matches: list, version: str) -> list:
             "queue_id": queue_id,
             "queue_name": queue_name,
             "date_str": date_str,
+            "game_duration": duration,
             "game_duration_str": dur_str,
             "game_start": game_start,
             "position": m.get("position", ""),
