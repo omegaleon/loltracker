@@ -286,6 +286,22 @@ def init_db():
                 FOREIGN KEY (session_id) REFERENCES focus_sessions(id) ON DELETE CASCADE,
                 UNIQUE(session_id, match_id, account_id)
             );
+
+            CREATE TABLE IF NOT EXISTS tier_benchmarks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_tier TEXT NOT NULL,
+                target_division TEXT NOT NULL,
+                position TEXT NOT NULL,
+                avg_deaths REAL DEFAULT 0,
+                avg_csm REAL DEFAULT 0,
+                avg_vision REAL DEFAULT 0,
+                avg_kda REAL DEFAULT 0,
+                avg_deaths_per_min REAL DEFAULT 0,
+                avg_dead_pct REAL DEFAULT 0,
+                sample_size INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(target_tier, target_division, position)
+            );
         """)
 
         # Migrations: add columns that may not exist in older databases
@@ -2074,3 +2090,60 @@ def get_focus_stats(profile_id: int) -> dict:
             "followed_winrate": round(followed_wins / len(followed) * 100) if followed else None,
             "not_followed_winrate": round(not_followed_wins / len(not_followed) * 100) if not_followed else None,
         }
+
+
+# ---- Tier Benchmarks ----
+
+def get_tier_benchmarks(target_tier: str, target_division: str) -> dict | None:
+    """Get cached benchmarks for a tier/division. Returns {position: {stats}} or None if stale/missing."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM tier_benchmarks
+               WHERE target_tier = ? AND target_division = ?
+               AND updated_at > datetime('now', '-8 days')""",
+            (target_tier.upper(), target_division.upper())
+        ).fetchall()
+        if not rows:
+            return None
+        return {r["position"]: dict(r) for r in rows}
+
+
+def save_tier_benchmarks(target_tier: str, target_division: str, position_stats: dict):
+    """Save/update benchmarks for a tier/division. position_stats = {position: {stat: value}}."""
+    with get_db() as conn:
+        for position, stats in position_stats.items():
+            conn.execute(
+                """INSERT INTO tier_benchmarks
+                   (target_tier, target_division, position,
+                    avg_deaths, avg_csm, avg_vision, avg_kda,
+                    avg_deaths_per_min, avg_dead_pct, sample_size, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(target_tier, target_division, position)
+                   DO UPDATE SET
+                    avg_deaths = excluded.avg_deaths,
+                    avg_csm = excluded.avg_csm,
+                    avg_vision = excluded.avg_vision,
+                    avg_kda = excluded.avg_kda,
+                    avg_deaths_per_min = excluded.avg_deaths_per_min,
+                    avg_dead_pct = excluded.avg_dead_pct,
+                    sample_size = excluded.sample_size,
+                    updated_at = CURRENT_TIMESTAMP""",
+                (target_tier.upper(), target_division.upper(), position,
+                 stats.get("avg_deaths", 0), stats.get("avg_csm", 0),
+                 stats.get("avg_vision", 0), stats.get("avg_kda", 0),
+                 stats.get("avg_deaths_per_min", 0), stats.get("avg_dead_pct", 0),
+                 stats.get("sample_size", 0))
+            )
+        conn.commit()
+
+
+def get_benchmarks_age(target_tier: str, target_division: str) -> float | None:
+    """Return age of benchmarks in days, or None if not cached."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT MIN(julianday('now') - julianday(updated_at)) as age_days
+               FROM tier_benchmarks
+               WHERE target_tier = ? AND target_division = ?""",
+            (target_tier.upper(), target_division.upper())
+        ).fetchone()
+        return row["age_days"] if row and row["age_days"] is not None else None

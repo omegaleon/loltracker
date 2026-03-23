@@ -224,6 +224,22 @@ class RiotAPI:
         )
         return self._get(url) or []
 
+    def get_league_entries_by_tier(self, queue: str, tier: str, division: str, page: int = 1):
+        """Get league entries for a specific tier/division via league-exp-v4.
+
+        Returns list of entries with summonerId, wins, losses, etc.
+        """
+        url = (
+            f"https://{PLATFORM_HOST}/lol/league-exp/v4/entries"
+            f"/{queue}/{tier}/{division}?page={page}"
+        )
+        return self._get(url) or []
+
+    def get_summoner_by_id(self, summoner_id: str):
+        """Get summoner info including puuid by summoner ID."""
+        url = f"https://{PLATFORM_HOST}/lol/summoner/v4/summoners/{summoner_id}"
+        return self._get(url)
+
     # ---- Data Dragon (static, not rate-limited) --------------------------
 
     def get_latest_version(self):

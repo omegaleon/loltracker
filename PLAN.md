@@ -1,6 +1,45 @@
 # LolTracker - Implementation Plan
 
-## Current Task: Phase 27 — Focus Mode
+## Current Task: Phase 27b — Tier Benchmarks (Real Player Data)
+
+### Problem
+Focus suggestions compare against players at your own elo, which just tells you
+if you're average. Need to compare against one full tier above to show where to improve.
+
+### Approach
+Use league-exp-v4 API to sample real players one tier above, fetch their recent
+matches, compute per-position stat averages. Cache weekly, refresh at 4 AM ET.
+
+### Tier Mapping (one full tier up, same division)
+Iron→Bronze, Bronze→Silver, Silver→Gold, Gold→Plat, Plat→Emerald,
+Emerald→Diamond, Diamond→Master, Master+→Grandmaster/Challenger
+
+### Data Flow
+1. Get user's highest rank (e.g. Plat 2)
+2. Calculate target: Emerald II
+3. league-exp-v4: GET /entries/RANKED_SOLO_5x5/EMERALD/II?page=1 → ~200 entries
+4. Sample 30 random players
+5. Resolve puuids via summoner lookup (parallelized)
+6. Fetch last 5 ranked matches per player (150 fetches, ThreadPoolExecutor)
+7. Compute per-position averages: deaths, CS/min, vision, KDA, deaths/min, time dead %
+8. Save to tier_benchmarks table
+
+### Schedule
+- On startup: if no benchmarks → seed now
+- Daily 4 AM ET: if any benchmarks >7 days old → refresh
+- ~181 API calls per refresh, ~18 seconds at 10 workers
+
+### Data Model
+```
+tier_benchmarks:
+  id, target_tier TEXT, target_division TEXT, position TEXT,
+  avg_deaths REAL, avg_csm REAL, avg_vision REAL, avg_kda REAL,
+  avg_deaths_per_min REAL, avg_dead_pct REAL,
+  sample_size INTEGER, updated_at TIMESTAMP,
+  UNIQUE(target_tier, target_division, position)
+```
+
+## Previous: Phase 27 — Focus Mode
 
 ### Problem
 Player knows what to do but doesn't do it under pressure. Fights when behind,

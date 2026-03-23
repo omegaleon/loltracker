@@ -3172,11 +3172,22 @@ def focus_suggestions(profile_id):
         return jsonify({"suggestions": [], "previous": []})
 
     accounts = db.get_accounts_for_profile(profile_id)
-    puuids = [a["puuid"] for a in accounts]
-    if not puuids:
+    if not accounts:
         return jsonify({"suggestions": [], "previous": []})
 
-    suggestions = _generate_focus_suggestions(puuids)
+    puuids = [a["puuid"] for a in accounts]
+
+    # Get user's highest rank to determine benchmark target
+    target_tier, target_div = _get_benchmark_target(accounts)
+    benchmarks = None
+    if target_tier:
+        benchmarks = db.get_tier_benchmarks(target_tier, target_div)
+        if benchmarks is None:
+            # No cached benchmarks — kick off background collection
+            _start_benchmark_collection(target_tier, target_div)
+            # Fall back to DB-based benchmarks for now
+
+    suggestions = _generate_focus_suggestions(puuids, benchmarks)
 
     # Get previously used focus rules (unique, most recent first)
     previous = db.get_previous_focus_rules(profile_id, limit=5)
@@ -3184,7 +3195,237 @@ def focus_suggestions(profile_id):
     return jsonify({"suggestions": suggestions, "previous": previous})
 
 
-def _generate_focus_suggestions(puuids: list) -> list:
+# ---- Tier Benchmark Collection ----
+
+_TIER_ORDER = ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND",
+               "MASTER", "GRANDMASTER", "CHALLENGER"]
+
+_benchmark_lock = threading.Lock()
+_benchmark_in_progress = set()  # track which tier+div are being collected
+
+
+def _get_benchmark_target(accounts: list) -> tuple:
+    """Determine the benchmark target tier/division (one full tier above highest rank)."""
+    tier_val = {"IRON": 0, "BRONZE": 1, "SILVER": 2, "GOLD": 3, "PLATINUM": 4,
+                "EMERALD": 5, "DIAMOND": 6, "MASTER": 7, "GRANDMASTER": 8, "CHALLENGER": 9}
+    div_val = {"IV": 0, "III": 1, "II": 2, "I": 3}
+
+    best_score = -1
+    best_tier = None
+    best_div = None
+    for acct in accounts:
+        full_acct = db.get_account(acct["id"])
+        ranks = full_acct.get("ranks", []) if full_acct else []
+        for r in ranks:
+            if r.get("queue_type") != "RANKED_SOLO_5x5":
+                continue
+            t = (r.get("tier") or "").upper()
+            d = (r.get("rank") or "").upper()
+            score = tier_val.get(t, 0) * 10 + div_val.get(d, 0)
+            if score > best_score:
+                best_score = score
+                best_tier = t
+                best_div = d
+
+    if not best_tier:
+        return None, None
+
+    # One full tier up, same division
+    idx = tier_val.get(best_tier, 0)
+    target_idx = min(idx + 1, len(_TIER_ORDER) - 1)
+    target_tier = _TIER_ORDER[target_idx]
+
+    # Master+ don't have divisions
+    if target_tier in ("MASTER", "GRANDMASTER", "CHALLENGER"):
+        target_div = "I"
+    else:
+        target_div = best_div or "IV"
+
+    return target_tier, target_div
+
+
+def _start_benchmark_collection(target_tier: str, target_div: str):
+    """Start background benchmark collection if not already in progress."""
+    key = f"{target_tier}_{target_div}"
+    with _benchmark_lock:
+        if key in _benchmark_in_progress:
+            return  # already running
+        _benchmark_in_progress.add(key)
+
+    def _collect():
+        try:
+            logger.info("Starting benchmark collection for %s %s", target_tier, target_div)
+            _collect_tier_benchmarks(target_tier, target_div)
+            logger.info("Benchmark collection complete for %s %s", target_tier, target_div)
+        except Exception:
+            logger.exception("Benchmark collection failed for %s %s", target_tier, target_div)
+        finally:
+            with _benchmark_lock:
+                _benchmark_in_progress.discard(key)
+
+    t = threading.Thread(target=_collect, daemon=True)
+    t.start()
+
+
+def _collect_tier_benchmarks(target_tier: str, target_div: str):
+    """Fetch real player data from the target tier and compute position benchmarks."""
+    import random
+
+    # Use the global API client
+    api = _api
+
+    queue = "RANKED_SOLO_5x5"
+    entries = api.get_league_entries_by_tier(queue, target_tier, target_div, page=1)
+    if not entries:
+        logger.warning("No league entries found for %s %s", target_tier, target_div)
+        return
+
+    # Sample 30 random players
+    sample_size = min(30, len(entries))
+    sampled = random.sample(entries, sample_size)
+
+    # Resolve PUUIDs (need summoner lookup) — parallelized
+    def _resolve_puuid(entry):
+        sid = entry.get("summonerId")
+        if not sid:
+            return None
+        try:
+            summoner = api.get_summoner_by_id(sid)
+            return summoner.get("puuid") if summoner else None
+        except Exception:
+            return None
+
+    puuids = []
+    workers = min(10, sample_size)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_resolve_puuid, e) for e in sampled]
+        for f in as_completed(futures):
+            result = f.result()
+            if result:
+                puuids.append(result)
+
+    if not puuids:
+        logger.warning("No PUUIDs resolved for %s %s", target_tier, target_div)
+        return
+
+    logger.info("Resolved %d PUUIDs for %s %s, fetching matches", len(puuids), target_tier, target_div)
+
+    # Fetch last 5 ranked matches per player — parallelized
+    all_match_ids = []
+
+    def _fetch_match_ids(puuid):
+        try:
+            ids = api.get_match_ids(puuid, queue=420, count=5)
+            return ids or []
+        except Exception:
+            return []
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_fetch_match_ids, p) for p in puuids]
+        for f in as_completed(futures):
+            all_match_ids.extend(f.result())
+
+    # Deduplicate
+    unique_match_ids = list(set(all_match_ids))
+    logger.info("Fetching %d unique matches for benchmarks", len(unique_match_ids))
+
+    # Fetch match details — parallelized
+    match_data = {}
+
+    def _fetch_match(mid):
+        try:
+            return mid, api.get_match(mid)
+        except Exception:
+            return mid, None
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_fetch_match, mid) for mid in unique_match_ids]
+        for f in as_completed(futures):
+            mid, data = f.result()
+            if data:
+                match_data[mid] = data
+
+    # Compute per-position stats from all participants in target tier
+    # (filter to only the sampled puuids, not all 10 players per match)
+    puuid_set = set(puuids)
+    position_stats = {}  # position -> list of {deaths, csm, vision, kda, dpm, dead_pct}
+
+    for mid, data in match_data.items():
+        info = data.get("info", {})
+        duration = info.get("gameDuration", 0)
+        if duration < 600:
+            continue  # skip short/remake games
+
+        for p in info.get("participants", []):
+            if p.get("puuid") not in puuid_set:
+                continue
+            pos = p.get("teamPosition", "")
+            if not pos:
+                continue
+
+            deaths = p.get("deaths", 0)
+            kills = p.get("kills", 0)
+            assists = p.get("assists", 0)
+            cs = p.get("totalMinionsKilled", 0) + p.get("neutralMinionsKilled", 0)
+            vision = p.get("visionScore", 0)
+            time_dead = p.get("totalTimeSpentDead", 0)
+            dur_min = duration / 60.0
+
+            if pos not in position_stats:
+                position_stats[pos] = []
+
+            position_stats[pos].append({
+                "deaths": deaths,
+                "csm": cs / dur_min if dur_min > 0 else 0,
+                "vision": vision,
+                "kda": (kills + assists) / max(deaths, 1),
+                "deaths_per_min": deaths / dur_min if dur_min > 0 else 0,
+                "dead_pct": (time_dead / duration * 100) if duration > 0 else 0,
+            })
+
+    # Average per position
+    benchmarks = {}
+    for pos, stats_list in position_stats.items():
+        n = len(stats_list)
+        if n == 0:
+            continue
+        benchmarks[pos] = {
+            "avg_deaths": round(sum(s["deaths"] for s in stats_list) / n, 1),
+            "avg_csm": round(sum(s["csm"] for s in stats_list) / n, 1),
+            "avg_vision": round(sum(s["vision"] for s in stats_list) / n, 1),
+            "avg_kda": round(sum(s["kda"] for s in stats_list) / n, 1),
+            "avg_deaths_per_min": round(sum(s["deaths_per_min"] for s in stats_list) / n, 3),
+            "avg_dead_pct": round(sum(s["dead_pct"] for s in stats_list) / n, 1),
+            "sample_size": n,
+        }
+
+    if benchmarks:
+        db.save_tier_benchmarks(target_tier, target_div, benchmarks)
+        logger.info("Saved benchmarks for %s %s: %s", target_tier, target_div,
+                     {k: v["sample_size"] for k, v in benchmarks.items()})
+
+
+def _refresh_stale_benchmarks():
+    """Check all profiles for stale benchmarks and refresh them."""
+    try:
+        profiles = db.get_profiles()
+        for profile in profiles:
+            accounts = db.get_accounts_for_profile(profile["id"])
+            if not accounts:
+                continue
+            target_tier, target_div = _get_benchmark_target(accounts)
+            if not target_tier:
+                continue
+            age = db.get_benchmarks_age(target_tier, target_div)
+            if age is None or age > 7:
+                logger.info("Scheduler: refreshing benchmarks for %s %s (age=%s days)",
+                            target_tier, target_div, f"{age:.1f}" if age else "none")
+                _start_benchmark_collection(target_tier, target_div)
+    except Exception:
+        logger.exception("Scheduler: benchmark refresh failed")
+
+
+def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None) -> list:
     """Analyze recent ranked games and generate actionable focus suggestions."""
     suggestions = []
     placeholders = ",".join("?" for _ in puuids)
@@ -3208,21 +3449,34 @@ def _generate_focus_suggestions(puuids: list) -> list:
         if len(player_rows) < 5:
             return []
 
-        # Get position benchmarks from all players in DB
-        bench_rows = conn.execute(
-            """SELECT p.position,
-                      AVG(p.deaths) as avg_deaths,
-                      AVG(CAST(p.cs AS FLOAT) / (m.game_duration/60.0)) as avg_csm,
-                      AVG(p.vision_score) as avg_vis
-               FROM participants p
-               JOIN matches m ON m.match_id = p.match_id
-               WHERE m.queue_id IN (420, 440)
-                 AND COALESCE(m.is_remake, 0) = 0
-                 AND m.game_duration > 600
-                 AND p.position != ''
-               GROUP BY p.position"""
-        ).fetchall()
-        benchmarks = {r["position"]: dict(r) for r in bench_rows}
+        # Use tier benchmarks if available, otherwise fall back to DB averages
+        if tier_benchmarks:
+            # Remap keys for consistency (tier benchmarks use teamPosition names)
+            benchmarks = {}
+            for pos, stats in tier_benchmarks.items():
+                benchmarks[pos] = {
+                    "avg_deaths": stats.get("avg_deaths", 6.0),
+                    "avg_csm": stats.get("avg_csm", 6.5),
+                    "avg_vis": stats.get("avg_vision", 25.0),
+                    "avg_kda": stats.get("avg_kda", 2.5),
+                }
+            benchmark_source = "tier"
+        else:
+            bench_rows = conn.execute(
+                """SELECT p.position,
+                          AVG(p.deaths) as avg_deaths,
+                          AVG(CAST(p.cs AS FLOAT) / (m.game_duration/60.0)) as avg_csm,
+                          AVG(p.vision_score) as avg_vis
+                   FROM participants p
+                   JOIN matches m ON m.match_id = p.match_id
+                   WHERE m.queue_id IN (420, 440)
+                     AND COALESCE(m.is_remake, 0) = 0
+                     AND m.game_duration > 600
+                     AND p.position != ''
+                   GROUP BY p.position"""
+            ).fetchall()
+            benchmarks = {r["position"]: dict(r) for r in bench_rows}
+            benchmark_source = "db"
 
         # Compute player averages
         total_games = len(player_rows)
@@ -3255,6 +3509,8 @@ def _generate_focus_suggestions(puuids: list) -> list:
         bench = benchmarks.get(main_pos, {})
         pos_label = {"TOP": "Top", "JUNGLE": "Jungle", "MIDDLE": "Mid",
                      "BOTTOM": "ADC", "UTILITY": "Support"}.get(main_pos, main_pos)
+        # Label for benchmark comparison source
+        bench_label = pos_label if benchmark_source == "db" else f"{pos_label} (tier above)"
 
         # --- Generate suggestions based on data ---
 
@@ -3262,7 +3518,7 @@ def _generate_focus_suggestions(puuids: list) -> list:
         bench_deaths = bench.get("avg_deaths", 6.0)
         if avg_deaths > bench_deaths * 1.2:
             suggestions.append({
-                "rule": f"Reduce deaths \u2014 you average {avg_deaths:.1f}/game vs {bench_deaths:.1f} for {pos_label}",
+                "rule": f"Reduce deaths \u2014 you average {avg_deaths:.1f}/game vs {bench_deaths:.1f} for {bench_label}",
                 "category": "deaths",
                 "severity": "high" if avg_deaths > bench_deaths * 1.5 else "medium",
                 "metric": f"{avg_deaths:.1f} deaths/game",
@@ -3273,7 +3529,7 @@ def _generate_focus_suggestions(puuids: list) -> list:
             bench_csm = bench.get("avg_csm", 6.5)
             if avg_cs_per_min < bench_csm * 0.85:
                 suggestions.append({
-                    "rule": f"Focus on farming \u2014 {avg_cs_per_min:.1f} CS/min vs {bench_csm:.1f} average for {pos_label}",
+                    "rule": f"Focus on farming \u2014 {avg_cs_per_min:.1f} CS/min vs {bench_csm:.1f} average for {bench_label}",
                     "category": "cs",
                     "severity": "high" if avg_cs_per_min < bench_csm * 0.7 else "medium",
                     "metric": f"{avg_cs_per_min:.1f} CS/min",
@@ -3283,7 +3539,7 @@ def _generate_focus_suggestions(puuids: list) -> list:
         bench_vis = bench.get("avg_vis", 25.0)
         if avg_vision < bench_vis * 0.7:
             suggestions.append({
-                "rule": f"Ward more \u2014 {avg_vision:.0f} vision/game vs {bench_vis:.0f} for {pos_label}",
+                "rule": f"Ward more \u2014 {avg_vision:.0f} vision/game vs {bench_vis:.0f} for {bench_label}",
                 "category": "vision",
                 "severity": "medium",
                 "metric": f"{avg_vision:.0f} vision score",
@@ -4725,6 +4981,11 @@ def _scheduler_loop():
                 # Don't count this as "ran" — retry next loop iteration
                 time.sleep(60)
                 continue
+
+            # 4am benchmark refresh
+            if current_hour == 4 and last_hour_run != 4:
+                logger.info("Scheduler: 4am benchmark refresh check")
+                _refresh_stale_benchmarks()
 
             # 8am daily run (with scrape)
             if current_hour == 8 and last_8am_date != current_date:
