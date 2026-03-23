@@ -624,6 +624,14 @@ def account_matches(account_id):
     for fm in formatted:
         fm["vs_champions"] = opponents.get(fm["match_id"], [])
 
+    # Enrich with LP deltas (only for ranked matches)
+    ranked_matches = [(m["match_id"], m.get("game_start", 0))
+                      for m in matches
+                      if m.get("match_id") and m.get("queue_id") in (420, 440)]
+    lp_deltas = db.get_lp_deltas_for_matches(acct["id"], ranked_matches)
+    for fm in formatted:
+        fm["lp_delta"] = lp_deltas.get(fm["match_id"])
+
     return jsonify({
         "account": {
             "id": acct["id"],

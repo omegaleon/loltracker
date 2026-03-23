@@ -1546,7 +1546,7 @@ document.addEventListener("DOMContentLoaded", () => {
         : `<span class="match-notes-icon" title="Add notes">&#9998;</span>`;
 
       row.innerHTML = `
-        <span class="match-wl-badge ${m.is_remake ? "r" : (m.win ? "w" : "l")}">${m.is_remake ? "R" : (m.win ? "W" : "L")}</span>
+        <span class="match-wl-badge ${m.is_remake ? "r" : (m.win ? "w" : "l")}">${m.is_remake ? "R" : (m.win ? "W" : "L")}</span>${m.lp_delta != null ? `<span class="match-lp ${m.lp_delta >= 0 ? "lp-pos" : "lp-neg"}">${m.lp_delta >= 0 ? "+" : ""}${m.lp_delta}</span>` : ""}
         <img loading="lazy" class="match-champ-img" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${fixChampName(m.champion_name)}.png" alt="${m.champion_name}" onerror="this.style.display='none'">
         <div class="match-info">
           <div class="match-top-line">

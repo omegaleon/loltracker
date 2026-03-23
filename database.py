@@ -2162,3 +2162,81 @@ def get_benchmarks_age(target_tier: str, target_division: str) -> float | None:
             (target_tier.upper(), target_division.upper())
         ).fetchone()
         return row["age_days"] if row and row["age_days"] is not None else None
+
+
+# ---- LP Delta Calculation ----
+
+_TIER_LP = {
+    "IRON": 0, "BRONZE": 400, "SILVER": 800, "GOLD": 1200,
+    "PLATINUM": 1600, "EMERALD": 2000, "DIAMOND": 2400,
+    "MASTER": 2800, "GRANDMASTER": 2800, "CHALLENGER": 2800,
+}
+_DIV_LP = {"IV": 0, "III": 100, "II": 200, "I": 300}
+
+
+def _rank_to_absolute_lp(tier: str, division: str, lp: int) -> int:
+    """Convert tier/division/lp to an absolute LP value for comparison."""
+    t = (tier or "").upper()
+    d = (division or "").upper()
+    return _TIER_LP.get(t, 0) + _DIV_LP.get(d, 0) + (lp or 0)
+
+
+def get_lp_deltas_for_matches(account_id: int, match_game_starts: list) -> dict:
+    """Compute LP delta for each match by finding rank snapshots before/after game.
+
+    match_game_starts: list of (match_id, game_start_ms)
+    Returns {match_id: lp_delta} where lp_delta is int (+18, -15, etc.) or None.
+    """
+    if not match_game_starts:
+        return {}
+
+    with get_db() as conn:
+        # Get all rank history for this account, sorted by time
+        history = conn.execute(
+            """SELECT tier, rank, lp, wins, losses, recorded_at
+               FROM rank_history
+               WHERE account_id = ? AND queue_type = 'RANKED_SOLO_5x5'
+               ORDER BY recorded_at ASC""",
+            (account_id,)
+        ).fetchall()
+
+        if len(history) < 2:
+            return {}
+
+        # Build list of (timestamp_str, absolute_lp, wins, losses)
+        snapshots = []
+        for h in history:
+            abs_lp = _rank_to_absolute_lp(h["tier"], h["rank"], h["lp"])
+            snapshots.append({
+                "recorded_at": h["recorded_at"],
+                "abs_lp": abs_lp,
+                "wins": h["wins"] or 0,
+                "losses": h["losses"] or 0,
+                "tier": h["tier"],
+                "rank": h["rank"],
+                "lp": h["lp"],
+            })
+
+        result = {}
+        for match_id, game_start_ms in match_game_starts:
+            # Convert game_start from ms to datetime string in UTC
+            import datetime
+            game_dt = datetime.datetime.utcfromtimestamp(game_start_ms / 1000)
+            game_str = game_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+            # Find the last snapshot BEFORE the game and first snapshot AFTER
+            before = None
+            after = None
+            for s in snapshots:
+                if s["recorded_at"] <= game_str:
+                    before = s
+                elif after is None:
+                    after = s
+
+            if before and after:
+                delta = after["abs_lp"] - before["abs_lp"]
+                # Sanity check: delta should be reasonable (-30 to +30)
+                if -50 <= delta <= 50:
+                    result[match_id] = delta
+
+        return result

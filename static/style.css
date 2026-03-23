@@ -726,6 +726,15 @@ body {
 .match-wl-badge.l { color: var(--loss); }
 .match-wl-badge.r { color: var(--text-muted); }
 
+.match-lp {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-left: 0.2rem;
+}
+.lp-pos { color: var(--win); }
+.lp-neg { color: var(--loss); }
+
 .match-champ-img {
   width: 44px;
   height: 44px;
