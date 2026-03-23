@@ -3171,7 +3171,7 @@ def focus_suggestions(profile_id):
     if not profile:
         return jsonify({"suggestions": [], "previous": []})
 
-    accounts = db.get_accounts_for_profile(profile_id)
+    accounts = profile.get("accounts", [])
     if not accounts:
         return jsonify({"suggestions": [], "previous": []})
 
@@ -3410,7 +3410,8 @@ def _refresh_stale_benchmarks():
     try:
         profiles = db.get_profiles()
         for profile in profiles:
-            accounts = db.get_accounts_for_profile(profile["id"])
+            full_profile = db.get_profile(profile["id"])
+            accounts = full_profile.get("accounts", []) if full_profile else []
             if not accounts:
                 continue
             target_tier, target_div = _get_benchmark_target(accounts)
