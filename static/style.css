@@ -4529,7 +4529,7 @@ a.ep-champ-name:hover {
 .bench-loading {
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: var(--text-muted);
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -4644,7 +4644,7 @@ a.ep-champ-name:hover {
 .focus-active-stats {
   font-family: var(--font-mono);
   font-size: 0.72rem;
-  color: var(--text-muted);
+  color: var(--text-primary);
   flex-shrink: 0;
 }
 .focus-active-actions {
@@ -4665,7 +4665,7 @@ a.ep-champ-name:hover {
 .focus-checkin-label {
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: var(--text-muted);
+  color: var(--text-primary);
 }
 .focus-checkin-btn {
   font-family: var(--font-mono);
@@ -4731,7 +4731,7 @@ a.ep-champ-name:hover {
   font-family: var(--font-mono);
   font-size: 0.62rem;
   font-weight: 700;
-  color: var(--text-muted);
+  color: var(--text-primary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -4750,7 +4750,7 @@ a.ep-champ-name:hover {
 .focus-stat-sub {
   font-family: var(--font-mono);
   font-size: 0.62rem;
-  color: var(--text-dim);
+  color: var(--text-primary);
 }
 .focus-delta {
   font-family: var(--font-mono);
@@ -4764,7 +4764,7 @@ a.ep-champ-name:hover {
 .focus-stats-hint {
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: var(--text-dim);
+  color: var(--text-primary);
   padding: 0.3rem 0;
   margin-bottom: 0.5rem;
 }
