@@ -4434,7 +4434,7 @@ document.addEventListener("DOMContentLoaded", () => {
     html += `<div id="saber-timeline-${detail.match_id}" class="saber-timeline-section">
       <div class="saber-header">
         <span class="saber-title">Death Review</span>
-        <a class="saber-credit" href="https://www.youtube.com/@xFSNSaber" target="_blank" rel="noopener">Saber Learning Technique</a>
+        <a class="saber-credit" href="https://www.youtube.com/watch?v=f_6ACcWD8Jc" target="_blank" rel="noopener">Saber Learning Technique</a>
       </div>
       <div class="saber-timeline-loading"><span class="spinner-sm"></span> Loading timeline...</div>
     </div>`;

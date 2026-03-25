@@ -4789,8 +4789,8 @@ a.ep-champ-name:hover {
 }
 .saber-credit {
   font-family: var(--font-mono);
-  font-size: 0.6rem;
-  color: var(--text-muted);
+  font-size: 0.65rem;
+  color: var(--text-primary);
   text-decoration: none;
 }
 .saber-credit:hover {
@@ -4811,15 +4811,15 @@ a.ep-champ-name:hover {
 }
 .saber-phase {
   font-family: var(--font-mono);
-  font-size: 0.55rem;
-  color: var(--text-muted);
+  font-size: 0.65rem;
+  color: var(--text-primary);
   text-align: center;
   border-right: 1px solid var(--border);
 }
 .saber-phase:last-child { border-right: none; }
 .saber-bar {
   position: relative;
-  height: 28px;
+  height: 48px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -4829,8 +4829,8 @@ a.ep-champ-name:hover {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   background: var(--loss);
   border-radius: 50%;
   cursor: pointer;
@@ -4849,8 +4849,8 @@ a.ep-champ-name:hover {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   background: var(--win);
   border-radius: 50%;
   z-index: 1;
@@ -4858,14 +4858,14 @@ a.ep-champ-name:hover {
 }
 .saber-obj {
   position: absolute;
-  bottom: -1px;
+  bottom: 2px;
   transform: translateX(-50%);
   font-family: var(--font-mono);
-  font-size: 0.5rem;
+  font-size: 0.6rem;
   font-weight: 700;
-  width: 14px;
-  height: 14px;
-  line-height: 14px;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
   text-align: center;
   border-radius: 2px;
   z-index: 1;
