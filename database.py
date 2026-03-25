@@ -2342,6 +2342,20 @@ def get_death_patterns(account_id: int) -> list:
         return [dict(r) for r in rows]
 
 
+def get_matches_with_notes(account_id: int, match_ids: list) -> set:
+    """Return set of match_ids that have death notes for this account."""
+    if not match_ids:
+        return set()
+    with get_db() as conn:
+        placeholders = ",".join("?" for _ in match_ids)
+        rows = conn.execute(
+            f"""SELECT DISTINCT match_id FROM death_notes
+                WHERE account_id = ? AND match_id IN ({placeholders})""",
+            [account_id] + match_ids
+        ).fetchall()
+        return {r["match_id"] for r in rows}
+
+
 def create_death_pattern(account_id: int, label: str, note_ids: list) -> int:
     """Create a pattern and assign notes to it. Returns pattern ID."""
     with get_db() as conn:

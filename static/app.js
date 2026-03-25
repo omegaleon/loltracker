@@ -1564,6 +1564,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <span class="match-stat" title="Damage per minute"><span class="sv">${formatK(m.damage)}</span> Dmg${pm ? ` <span class="pm">(${formatK(Math.round(m.damage / mins))}/m)</span>` : ""}</span>
             <span class="match-stat"><span class="sv">${m.vision}</span> Vis</span>`; })()}
             <span class="match-meta">${m.queue_name} · ${m.game_duration_str} · ${m.date_str}</span>
+            ${m.has_notes ? '<span class="match-reviewed-badge" title="Death review notes added">REVIEWED</span>' : ''}
             <span class="match-expand-hint">Click to expand</span>
           </div>
         </div>
@@ -3999,6 +4000,7 @@ document.addEventListener("DOMContentLoaded", () => {
     html += `</div>`; // end saber-bar
 
     // Death list below timeline
+    const hasAnyNotes = Object.keys(notes).length > 0;
     html += `<div class="saber-death-list">`;
     if (deaths.length === 0) {
       html += `<div class="saber-no-deaths">No deaths this game</div>`;
@@ -4008,6 +4010,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const assistStr = d.assists.length > 0 ? ` (+ ${d.assists.join(", ")})` : "";
         html += `
           <div class="saber-death-row" data-idx="${i}" data-ts="${d.timestamp}">
+            ${note ? `<input type="checkbox" class="saber-pattern-check" data-note-id="${note.id}" data-ts="${d.timestamp}">` : ""}
             <span class="saber-death-time">${_fmtMs(d.timestamp)}</span>
             <span class="saber-death-info">Killed by <strong>${escHtml(d.killer_champ)}</strong>${escHtml(assistStr)}</span>
             <div class="saber-note-area">
@@ -4022,6 +4025,17 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
     html += `</div>`; // end death list
+
+    // Pattern creation (only show if there are notes to group)
+    if (hasAnyNotes) {
+      html += `
+        <div class="saber-pattern-bar">
+          <span class="saber-pattern-hint">Select noted deaths above to group into a pattern</span>
+          <input type="text" class="saber-pattern-input" placeholder="Pattern name (e.g. Getting caught in river)" maxlength="200">
+          <button class="saber-pattern-create btn btn-sm" disabled>Create Pattern</button>
+        </div>
+      `;
+    }
 
     html += `</div>`; // end saber-bar-wrap
 
@@ -4063,6 +4077,55 @@ document.addEventListener("DOMContentLoaded", () => {
         _showNoteInput(area, data.match_id, accountId, ts, note.killer_champ || "", note.note);
       });
     });
+
+    // Wire pattern checkboxes + create button
+    const createBtn = container.querySelector(".saber-pattern-create");
+    const patternInput = container.querySelector(".saber-pattern-input");
+    if (createBtn && patternInput) {
+      const checks = container.querySelectorAll(".saber-pattern-check");
+      const updateBtn = () => {
+        const checked = container.querySelectorAll(".saber-pattern-check:checked");
+        createBtn.disabled = checked.length === 0 || !patternInput.value.trim();
+      };
+      checks.forEach(cb => cb.addEventListener("change", updateBtn));
+      patternInput.addEventListener("input", updateBtn);
+
+      createBtn.addEventListener("click", async () => {
+        const label = patternInput.value.trim();
+        const noteIds = [...container.querySelectorAll(".saber-pattern-check:checked")]
+          .map(cb => parseInt(cb.dataset.noteId));
+        if (!label || noteIds.length === 0) return;
+        createBtn.disabled = true;
+        createBtn.textContent = "Creating...";
+        try {
+          const res = await fetch(`/api/accounts/${accountId}/death-patterns`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ label, note_ids: noteIds }),
+          });
+          const result = await res.json();
+          if (result.ok) {
+            createBtn.textContent = "Created!";
+            createBtn.style.borderColor = "var(--win)";
+            createBtn.style.color = "var(--win)";
+            // Offer to set as focus
+            const setFocusBtn = document.createElement("button");
+            setFocusBtn.className = "btn btn-sm saber-set-focus";
+            setFocusBtn.textContent = "Set as Focus";
+            setFocusBtn.addEventListener("click", async () => {
+              await fetch(`/api/accounts/${accountId}/death-patterns/${result.id}/to-focus`, { method: "POST" });
+              setFocusBtn.textContent = "Focus Set!";
+              setFocusBtn.disabled = true;
+              // Reload focus banner
+              _loadFocusBanner();
+            });
+            createBtn.after(setFocusBtn);
+          }
+        } catch (e) {
+          createBtn.textContent = "Error";
+        }
+      });
+    }
   }
 
   function _showNoteInput(area, matchId, accountId, timestamp, killerChamp, existingNote) {

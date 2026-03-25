@@ -4878,8 +4878,7 @@ a.ep-champ-name:hover {
   gap: 0.25rem;
 }
 .saber-death-row {
-  display: grid;
-  grid-template-columns: 3rem 1fr auto;
+  display: flex;
   gap: 0.5rem;
   align-items: center;
   padding: 0.35rem 0.5rem;
@@ -4898,11 +4897,15 @@ a.ep-champ-name:hover {
   font-size: 0.75rem;
   font-weight: 700;
   color: var(--loss);
+  flex-shrink: 0;
+  width: 3rem;
 }
 .saber-death-info {
   font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
 }
 .saber-no-deaths {
   font-family: var(--font-mono);
@@ -4922,7 +4925,22 @@ a.ep-champ-name:hover {
   color: var(--accent-bright);
   font-style: italic;
 }
-.saber-note-add, .saber-note-edit {
+.saber-note-add {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border: 1px dashed var(--accent);
+  border-radius: 3px;
+  background: rgba(124, 92, 191, 0.08);
+  color: var(--accent-bright);
+  cursor: pointer;
+}
+.saber-note-add:hover {
+  background: rgba(124, 92, 191, 0.2);
+  border-style: solid;
+}
+.saber-note-edit {
   font-family: var(--font-mono);
   font-size: 0.6rem;
   padding: 0.15rem 0.4rem;
@@ -4932,7 +4950,7 @@ a.ep-champ-name:hover {
   color: var(--text-muted);
   cursor: pointer;
 }
-.saber-note-add:hover, .saber-note-edit:hover {
+.saber-note-edit:hover {
   border-color: var(--accent);
   color: var(--accent-bright);
 }
@@ -4959,4 +4977,93 @@ a.ep-champ-name:hover {
 }
 .saber-note-save { border-color: var(--win); color: var(--win); }
 .saber-note-cancel { color: var(--text-muted); }
+
+/* Match row reviewed badge */
+.match-reviewed-badge {
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  font-weight: 700;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  background: rgba(124, 92, 191, 0.15);
+  color: var(--accent-bright);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Pattern checkboxes */
+.saber-pattern-check {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent-bright);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Pattern creation bar */
+.saber-pattern-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.saber-pattern-hint {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+.saber-pattern-input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.25rem 0.4rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+}
+.saber-pattern-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.saber-pattern-create {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  color: var(--accent-bright);
+  cursor: pointer;
+}
+.saber-pattern-create:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.saber-pattern-create:not(:disabled):hover {
+  background: rgba(124, 92, 191, 0.15);
+}
+.saber-set-focus {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--win);
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  color: var(--win);
+  cursor: pointer;
+  margin-left: 0.3rem;
+}
+.saber-set-focus:hover {
+  background: var(--win-bg);
+}
 

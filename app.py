@@ -632,6 +632,11 @@ def account_matches(account_id):
     for fm in formatted:
         fm["lp_delta"] = lp_deltas.get(fm["match_id"])
 
+    # Enrich with death review status
+    reviewed = db.get_matches_with_notes(acct["id"], match_ids)
+    for fm in formatted:
+        fm["has_notes"] = fm["match_id"] in reviewed
+
     return jsonify({
         "account": {
             "id": acct["id"],
