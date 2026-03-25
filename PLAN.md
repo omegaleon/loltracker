@@ -1,6 +1,74 @@
 # LolTracker - Implementation Plan
 
-## Current Task: Phase 27b — Tier Benchmarks (Real Player Data)
+## Current Task: Phase 28 — Saber Death Review
+
+### Concept
+Based on xFSN Saber's improvement framework (https://www.youtube.com/@xFSNSaber):
+1. **Identify** — Review your deaths to find the most common mistakes
+2. **Pattern Recognition** — Find the common denominator, generalize
+3. **Habit Stacking** — Add new behavior on top of existing habits
+4. **Implement** — Focus on ONE habit until it's automatic
+
+### Feature: Game Timeline + Death Review
+A visual timeline for each game showing deaths and key moments. The user can:
+- See all their deaths plotted on a horizontal timeline (0:00 → game end)
+- See key game events (objectives, turrets) for context
+- Click on a death to add a note describing what happened / what went wrong
+- Select multiple deaths and group them into a pattern
+- Convert a pattern into a focus rule
+
+### Data Source
+- Riot Match Timeline API: `GET /lol/match/v5/matches/{matchId}/timeline`
+- Events: CHAMPION_KILL (deaths), ELITE_MONSTER_KILL, BUILDING_KILL, TURRET_PLATE_DESTROYED
+- participantId → puuid mapping for identifying the player
+- Fetched on-demand when user opens the review, cached in DB
+
+### Data Model
+```
+death_notes:
+  id, match_id TEXT, account_id INTEGER,
+  participant_id INTEGER, timestamp_ms INTEGER,
+  killer_champ TEXT, note TEXT,
+  pattern_id INTEGER DEFAULT NULL,
+  created_at TIMESTAMP
+
+death_patterns:
+  id, account_id INTEGER,
+  label TEXT (e.g. "Getting caught in river without vision"),
+  created_at TIMESTAMP
+
+match_timelines:
+  match_id TEXT PRIMARY KEY,
+  timeline_json TEXT,
+  fetched_at TIMESTAMP
+```
+
+### API Endpoints
+- `GET /api/matches/{id}/timeline` — Fetch/cache timeline, return deaths + key events
+- `POST /api/matches/{id}/deaths/{timestamp}/note` — Add note to a death
+- `GET /api/accounts/{id}/death-patterns` — List patterns for an account
+- `POST /api/accounts/{id}/death-patterns` — Create pattern from selected deaths
+- `POST /api/accounts/{id}/death-patterns/{id}/to-focus` — Convert pattern to focus rule
+
+### UI Components
+1. **Timeline bar** — Horizontal bar inside expanded match, deaths as red markers,
+   objectives as icons, turret plates as gold ticks
+2. **Death detail popup** — Click a death marker → shows killer, position, context,
+   text input for note
+3. **Pattern panel** — Select multiple deaths across games → name the pattern →
+   creates a death_pattern
+4. **Saber credit** — "Saber Learning Technique" label with link to YouTube
+
+### Visual Design
+- Timeline bar: dark bg, game time 0→end, width proportional to game duration
+- Death markers: red circles on the timeline, size based on death significance
+- Your deaths: solid red. Your kills: green (smaller, for context)
+- Objectives: dragon/baron/herald icons below the timeline
+- Hover death: tooltip with "Killed by [champ] at [time]"
+- Click death: expand note input below timeline
+- Phase labels: "Early Game (0-14)" | "Mid Game (14-25)" | "Late Game (25+)"
+
+## Previous: Phase 27b — Tier Benchmarks (Real Player Data)
 
 ### Problem
 Focus suggestions compare against players at your own elo, which just tells you

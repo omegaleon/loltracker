@@ -302,6 +302,32 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(target_tier, target_division, position)
             );
+
+            CREATE TABLE IF NOT EXISTS match_timelines (
+                match_id TEXT PRIMARY KEY,
+                timeline_json TEXT NOT NULL,
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS death_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_id TEXT NOT NULL,
+                account_id INTEGER NOT NULL,
+                timestamp_ms INTEGER NOT NULL,
+                killer_champ TEXT,
+                note TEXT NOT NULL,
+                pattern_id INTEGER DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(match_id, account_id, timestamp_ms)
+            );
+
+            CREATE TABLE IF NOT EXISTS death_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                label TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
         """)
 
         # Migrations: add columns that may not exist in older databases
@@ -2240,3 +2266,95 @@ def get_lp_deltas_for_matches(account_id: int, match_game_starts: list) -> dict:
                     result[match_id] = delta
 
         return result
+
+
+# ---- Saber Death Review ----
+
+def get_cached_timeline(match_id: str) -> str | None:
+    """Get cached timeline JSON for a match."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT timeline_json FROM match_timelines WHERE match_id = ?",
+            (match_id,)
+        ).fetchone()
+        return row["timeline_json"] if row else None
+
+
+def cache_timeline(match_id: str, timeline_json: str):
+    """Cache timeline JSON for a match."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO match_timelines (match_id, timeline_json)
+               VALUES (?, ?)""",
+            (match_id, timeline_json)
+        )
+        conn.commit()
+
+
+def get_death_notes(match_id: str, account_id: int) -> list:
+    """Get all death notes for a match/account."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, timestamp_ms, killer_champ, note, pattern_id
+               FROM death_notes
+               WHERE match_id = ? AND account_id = ?
+               ORDER BY timestamp_ms""",
+            (match_id, account_id)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def save_death_note(match_id: str, account_id: int, timestamp_ms: int,
+                    killer_champ: str, note: str) -> int:
+    """Save or update a death note. Returns the note ID."""
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO death_notes (match_id, account_id, timestamp_ms, killer_champ, note)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(match_id, account_id, timestamp_ms)
+               DO UPDATE SET note = excluded.note, killer_champ = excluded.killer_champ""",
+            (match_id, account_id, timestamp_ms, killer_champ, note)
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def delete_death_note(note_id: int):
+    """Delete a death note."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM death_notes WHERE id = ?", (note_id,))
+        conn.commit()
+
+
+def get_death_patterns(account_id: int) -> list:
+    """Get all death patterns for an account with their note counts."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT dp.id, dp.label, dp.created_at,
+                      COUNT(dn.id) as note_count
+               FROM death_patterns dp
+               LEFT JOIN death_notes dn ON dn.pattern_id = dp.id
+               WHERE dp.account_id = ?
+               GROUP BY dp.id
+               ORDER BY dp.created_at DESC""",
+            (account_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def create_death_pattern(account_id: int, label: str, note_ids: list) -> int:
+    """Create a pattern and assign notes to it. Returns pattern ID."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO death_patterns (account_id, label) VALUES (?, ?)",
+            (account_id, label)
+        )
+        pattern_id = cur.lastrowid
+        if note_ids:
+            placeholders = ",".join("?" for _ in note_ids)
+            conn.execute(
+                f"UPDATE death_notes SET pattern_id = ? WHERE id IN ({placeholders})",
+                [pattern_id] + note_ids
+            )
+        conn.commit()
+        return pattern_id

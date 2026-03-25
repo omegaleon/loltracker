@@ -3928,6 +3928,198 @@ document.addEventListener("DOMContentLoaded", () => {
     row.appendChild(checkin);
   }
 
+  // ---- Saber Death Review Timeline ----
+
+  async function _loadSaberTimeline(matchId, accountId) {
+    const container = document.getElementById(`saber-timeline-${matchId}`);
+    if (!container) return;
+
+    try {
+      const res = await fetch(`/api/matches/${encodeURIComponent(matchId)}/timeline?account_id=${accountId}`);
+      if (!res.ok) {
+        container.querySelector(".saber-timeline-loading").textContent = "Timeline not available";
+        return;
+      }
+      const data = await res.json();
+      _renderSaberTimeline(container, data, accountId);
+    } catch (e) {
+      container.querySelector(".saber-timeline-loading").textContent = "Failed to load timeline";
+    }
+  }
+
+  function _renderSaberTimeline(container, data, accountId) {
+    const dur = data.game_duration * 1000; // convert to ms to match timestamps
+    if (dur <= 0) return;
+
+    const deaths = data.deaths || [];
+    const kills = data.kills || [];
+    const objectives = data.objectives || [];
+    const notes = data.notes || {};
+
+    // Phase boundaries in ms
+    const earlyEnd = 14 * 60 * 1000;
+    const midEnd = 25 * 60 * 1000;
+
+    // Build timeline HTML
+    let html = `<div class="saber-bar-wrap">`;
+
+    // Phase labels
+    html += `<div class="saber-phases">`;
+    html += `<div class="saber-phase" style="width:${Math.min(earlyEnd / dur * 100, 100)}%">Early (0-14)</div>`;
+    if (dur > earlyEnd) html += `<div class="saber-phase" style="width:${Math.min((midEnd - earlyEnd) / dur * 100, 100 - earlyEnd / dur * 100)}%">Mid (14-25)</div>`;
+    if (dur > midEnd) html += `<div class="saber-phase" style="width:${(dur - midEnd) / dur * 100}%">Late (25+)</div>`;
+    html += `</div>`;
+
+    // Timeline bar
+    html += `<div class="saber-bar">`;
+
+    // Objective markers
+    objectives.forEach(o => {
+      const pct = (o.timestamp / dur * 100).toFixed(1);
+      const icon = o.monster === "DRAGON" ? "D" : o.monster === "BARON_NASHOR" ? "B" : o.monster === "RIFTHERALD" ? "H" : o.monster === "TURRET" ? "T" : "";
+      if (icon) {
+        html += `<div class="saber-obj ${o.team}" style="left:${pct}%" title="${o.monster.replace(/_/g, " ")} (${_fmtMs(o.timestamp)})">${icon}</div>`;
+      }
+    });
+
+    // Kill markers (small, green)
+    kills.forEach(k => {
+      const pct = (k.timestamp / dur * 100).toFixed(1);
+      html += `<div class="saber-kill" style="left:${pct}%" title="Killed ${k.victim_champ} at ${_fmtMs(k.timestamp)}"></div>`;
+    });
+
+    // Death markers (large, red, clickable)
+    deaths.forEach((d, i) => {
+      const pct = (d.timestamp / dur * 100).toFixed(1);
+      const hasNote = notes[d.timestamp];
+      const noteClass = hasNote ? " has-note" : "";
+      html += `<div class="saber-death${noteClass}" style="left:${pct}%" data-idx="${i}" data-ts="${d.timestamp}" title="Killed by ${d.killer_champ} at ${_fmtMs(d.timestamp)}"></div>`;
+    });
+
+    html += `</div>`; // end saber-bar
+
+    // Death list below timeline
+    html += `<div class="saber-death-list">`;
+    if (deaths.length === 0) {
+      html += `<div class="saber-no-deaths">No deaths this game</div>`;
+    } else {
+      deaths.forEach((d, i) => {
+        const note = notes[d.timestamp];
+        const assistStr = d.assists.length > 0 ? ` (+ ${d.assists.join(", ")})` : "";
+        html += `
+          <div class="saber-death-row" data-idx="${i}" data-ts="${d.timestamp}">
+            <span class="saber-death-time">${_fmtMs(d.timestamp)}</span>
+            <span class="saber-death-info">Killed by <strong>${escHtml(d.killer_champ)}</strong>${escHtml(assistStr)}</span>
+            <div class="saber-note-area">
+              ${note
+                ? `<span class="saber-note-text">${escHtml(note.note)}</span>
+                   <button class="saber-note-edit" data-ts="${d.timestamp}">Edit</button>`
+                : `<button class="saber-note-add" data-ts="${d.timestamp}" data-killer="${escHtml(d.killer_champ)}">+ Add Note</button>`
+              }
+            </div>
+          </div>
+        `;
+      });
+    }
+    html += `</div>`; // end death list
+
+    html += `</div>`; // end saber-bar-wrap
+
+    // Replace loading with content
+    const loading = container.querySelector(".saber-timeline-loading");
+    if (loading) loading.remove();
+    const content = document.createElement("div");
+    content.innerHTML = html;
+    container.appendChild(content);
+
+    // Wire death marker clicks — highlight corresponding row
+    container.querySelectorAll(".saber-death").forEach(marker => {
+      marker.addEventListener("click", () => {
+        const idx = marker.dataset.idx;
+        const row = container.querySelector(`.saber-death-row[data-idx="${idx}"]`);
+        if (row) {
+          row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          row.classList.add("saber-highlight");
+          setTimeout(() => row.classList.remove("saber-highlight"), 1500);
+        }
+      });
+    });
+
+    // Wire add note buttons
+    container.querySelectorAll(".saber-note-add").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ts = parseInt(btn.dataset.ts);
+        const killer = btn.dataset.killer;
+        _showNoteInput(btn.closest(".saber-note-area"), data.match_id, accountId, ts, killer);
+      });
+    });
+
+    // Wire edit note buttons
+    container.querySelectorAll(".saber-note-edit").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ts = parseInt(btn.dataset.ts);
+        const note = notes[ts];
+        const area = btn.closest(".saber-note-area");
+        _showNoteInput(area, data.match_id, accountId, ts, note.killer_champ || "", note.note);
+      });
+    });
+  }
+
+  function _showNoteInput(area, matchId, accountId, timestamp, killerChamp, existingNote) {
+    area.innerHTML = `
+      <input type="text" class="saber-note-input" placeholder="What went wrong?" value="${escHtml(existingNote || "")}" maxlength="200">
+      <button class="saber-note-save">Save</button>
+      <button class="saber-note-cancel">Cancel</button>
+    `;
+    const input = area.querySelector(".saber-note-input");
+    input.focus();
+
+    area.querySelector(".saber-note-save").addEventListener("click", async () => {
+      const note = input.value.trim();
+      if (!note) return;
+      await fetch(`/api/matches/${encodeURIComponent(matchId)}/death-note`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_id: accountId, timestamp_ms: timestamp, killer_champ: killerChamp, note }),
+      });
+      area.innerHTML = `<span class="saber-note-text">${escHtml(note)}</span>
+        <button class="saber-note-edit" data-ts="${timestamp}">Edit</button>`;
+      // Mark the death marker as having a note
+      const marker = area.closest(".saber-timeline-section").querySelector(`.saber-death[data-ts="${timestamp}"]`);
+      if (marker) marker.classList.add("has-note");
+      // Re-wire edit button
+      area.querySelector(".saber-note-edit").addEventListener("click", () => {
+        _showNoteInput(area, matchId, accountId, timestamp, killerChamp, note);
+      });
+    });
+
+    area.querySelector(".saber-note-cancel").addEventListener("click", () => {
+      if (existingNote) {
+        area.innerHTML = `<span class="saber-note-text">${escHtml(existingNote)}</span>
+          <button class="saber-note-edit" data-ts="${timestamp}">Edit</button>`;
+        area.querySelector(".saber-note-edit").addEventListener("click", () => {
+          _showNoteInput(area, matchId, accountId, timestamp, killerChamp, existingNote);
+        });
+      } else {
+        area.innerHTML = `<button class="saber-note-add" data-ts="${timestamp}" data-killer="${escHtml(killerChamp)}">+ Add Note</button>`;
+        area.querySelector(".saber-note-add").addEventListener("click", () => {
+          _showNoteInput(area, matchId, accountId, timestamp, killerChamp);
+        });
+      }
+    });
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") area.querySelector(".saber-note-save").click();
+      if (e.key === "Escape") area.querySelector(".saber-note-cancel").click();
+    });
+  }
+
+  function _fmtMs(ms) {
+    const mins = Math.floor(ms / 60000);
+    const secs = Math.floor((ms % 60000) / 1000);
+    return `${mins}:${String(secs).padStart(2, "0")}`;
+  }
+
   // ---- Feature 5: Head-to-Head Comparison -----------------------------------
 
   function openHeadToHead() {
@@ -4238,6 +4430,15 @@ document.addEventListener("DOMContentLoaded", () => {
       html += renderPredFactorBreakdown(prediction, factors, true);
     }
 
+    // Saber Death Review timeline placeholder
+    html += `<div id="saber-timeline-${detail.match_id}" class="saber-timeline-section">
+      <div class="saber-header">
+        <span class="saber-title">Death Review</span>
+        <a class="saber-credit" href="https://www.youtube.com/@xFSNSaber" target="_blank" rel="noopener">Saber Learning Technique</a>
+      </div>
+      <div class="saber-timeline-loading"><span class="spinner-sm"></span> Loading timeline...</div>
+    </div>`;
+
     panel.innerHTML = html;
 
     // Wire up prediction analysis toggle
@@ -4250,6 +4451,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (arrow) arrow.innerHTML = isHidden ? "&#9654;" : "&#9660;";
       });
     });
+
+    // Load Saber timeline async
+    if (currentDetailAccount) {
+      _loadSaberTimeline(detail.match_id, currentDetailAccount.id);
+    }
   }
 
   // ---- Team Comparison Bars ----

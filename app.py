@@ -3671,6 +3671,157 @@ def _generate_focus_suggestions(puuids: list, tier_benchmarks: dict = None, posi
     }
 
 
+# ---- Saber Death Review (https://www.youtube.com/@xFSNSaber) ----
+
+@app.route("/api/matches/<match_id>/timeline", methods=["GET"])
+def get_match_timeline_route(match_id):
+    """Get match timeline with deaths and key events for the specified account."""
+    account_id = request.args.get("account_id", type=int)
+    if not account_id:
+        return jsonify({"error": "account_id required"}), 400
+
+    acct = db.get_account(account_id)
+    if not acct:
+        return jsonify({"error": "Account not found"}), 404
+
+    cached = db.get_cached_timeline(match_id)
+    if cached:
+        timeline_data = json.loads(cached)
+    else:
+        timeline_data = _api.get_match_timeline(match_id)
+        if not timeline_data:
+            return jsonify({"error": "Timeline not available"}), 404
+        db.cache_timeline(match_id, json.dumps(timeline_data))
+
+    match_raw = db.get_match_raw_json(match_id)
+    if not match_raw:
+        return jsonify({"error": "Match data not found"}), 404
+    match_info = json.loads(match_raw).get("info", {})
+    game_duration = match_info.get("gameDuration", 0)
+
+    puuid = acct["puuid"]
+    player_pid = None
+    pid_to_champ = {}
+    pid_to_team = {}
+    for p in match_info.get("participants", []):
+        pid = p.get("participantId")
+        pid_to_champ[pid] = p.get("championName", "?")
+        pid_to_team[pid] = p.get("teamId", 0)
+        if p.get("puuid") == puuid:
+            player_pid = pid
+
+    if player_pid is None:
+        return jsonify({"error": "Player not found in match"}), 404
+
+    player_team = pid_to_team.get(player_pid, 100)
+
+    deaths = []
+    kills = []
+    objectives = []
+
+    for frame in timeline_data.get("info", {}).get("frames", []):
+        for e in frame.get("events", []):
+            ts = e.get("timestamp", 0)
+            etype = e.get("type")
+
+            if etype == "CHAMPION_KILL":
+                killer_id = e.get("killerId", 0)
+                victim_id = e.get("victimId", 0)
+                killer_champ = pid_to_champ.get(killer_id, "?")
+                victim_champ = pid_to_champ.get(victim_id, "?")
+
+                if victim_id == player_pid:
+                    deaths.append({
+                        "timestamp": ts,
+                        "killer_champ": killer_champ,
+                        "killer_id": killer_id,
+                        "assists": [pid_to_champ.get(a, "?") for a in e.get("assistingParticipantIds", [])],
+                    })
+                elif killer_id == player_pid:
+                    kills.append({
+                        "timestamp": ts,
+                        "victim_champ": victim_champ,
+                    })
+
+            elif etype == "ELITE_MONSTER_KILL":
+                killer_team = pid_to_team.get(e.get("killerId", 0), 0)
+                objectives.append({
+                    "timestamp": ts,
+                    "monster": e.get("monsterType", ""),
+                    "sub_type": e.get("monsterSubType", ""),
+                    "team": "ally" if killer_team == player_team else "enemy",
+                })
+
+            elif etype == "BUILDING_KILL":
+                team_id = e.get("teamId", 0)
+                objectives.append({
+                    "timestamp": ts,
+                    "monster": "TURRET" if e.get("buildingType") == "TOWER_BUILDING" else "INHIBITOR",
+                    "sub_type": e.get("laneType", ""),
+                    "team": "ally" if team_id == player_team else "enemy",
+                })
+
+    notes = db.get_death_notes(match_id, account_id)
+    notes_by_ts = {n["timestamp_ms"]: n for n in notes}
+
+    return jsonify({
+        "match_id": match_id,
+        "game_duration": game_duration,
+        "player_champ": pid_to_champ.get(player_pid, "?"),
+        "deaths": deaths,
+        "kills": kills,
+        "objectives": objectives,
+        "notes": notes_by_ts,
+    })
+
+
+@app.route("/api/matches/<match_id>/death-note", methods=["POST"])
+def save_death_note_route(match_id):
+    """Save a note on a death event."""
+    data = request.get_json(silent=True) or {}
+    account_id = data.get("account_id")
+    timestamp_ms = data.get("timestamp_ms")
+    killer_champ = data.get("killer_champ", "")
+    note = (data.get("note") or "").strip()
+    if not all([account_id, timestamp_ms is not None, note]):
+        return jsonify({"error": "account_id, timestamp_ms, note required"}), 400
+    note_id = db.save_death_note(match_id, account_id, timestamp_ms, killer_champ, note)
+    return jsonify({"ok": True, "id": note_id})
+
+
+@app.route("/api/accounts/<int:account_id>/death-patterns", methods=["GET"])
+def get_death_patterns_route(account_id):
+    """Get all death patterns for an account."""
+    patterns = db.get_death_patterns(account_id)
+    return jsonify({"patterns": patterns})
+
+
+@app.route("/api/accounts/<int:account_id>/death-patterns", methods=["POST"])
+def create_death_pattern_route(account_id):
+    """Create a death pattern from selected notes."""
+    data = request.get_json(silent=True) or {}
+    label = (data.get("label") or "").strip()
+    note_ids = data.get("note_ids", [])
+    if not label:
+        return jsonify({"error": "label required"}), 400
+    pattern_id = db.create_death_pattern(account_id, label, note_ids)
+    return jsonify({"ok": True, "id": pattern_id})
+
+
+@app.route("/api/accounts/<int:account_id>/death-patterns/<int:pattern_id>/to-focus", methods=["POST"])
+def pattern_to_focus(account_id, pattern_id):
+    """Convert a death pattern into a focus rule."""
+    patterns = db.get_death_patterns(account_id)
+    pattern = next((p for p in patterns if p["id"] == pattern_id), None)
+    if not pattern:
+        return jsonify({"error": "Pattern not found"}), 404
+    acct = db.get_account(account_id)
+    if not acct:
+        return jsonify({"error": "Account not found"}), 404
+    focus = db.set_focus(account_id, acct.get("profile_id", 0), pattern["label"])
+    return jsonify({"ok": True, "focus": focus})
+
+
 @app.route("/api/accounts/<int:account_id>/performance-score", methods=["GET"])
 def account_performance_score(account_id):
     """Compute GPI-style performance score vs lobby averages."""
