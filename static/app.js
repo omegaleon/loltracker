@@ -4145,15 +4145,13 @@ document.addEventListener("DOMContentLoaded", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ account_id: accountId, timestamp_ms: timestamp, killer_champ: killerChamp, note }),
       });
-      area.innerHTML = `<span class="saber-note-text">${escHtml(note)}</span>
-        <button class="saber-note-edit" data-ts="${timestamp}">Edit</button>`;
-      // Mark the death marker as having a note
-      const marker = area.closest(".saber-timeline-section").querySelector(`.saber-death[data-ts="${timestamp}"]`);
-      if (marker) marker.classList.add("has-note");
-      // Re-wire edit button
-      area.querySelector(".saber-note-edit").addEventListener("click", () => {
-        _showNoteInput(area, matchId, accountId, timestamp, killerChamp, note);
-      });
+      // Re-render entire timeline to show checkbox + pattern bar
+      const container = area.closest(".saber-timeline-section");
+      if (container) {
+        const header = container.querySelector(".saber-header").outerHTML;
+        container.innerHTML = header + '<div class="saber-timeline-loading"><span class="spinner-sm"></span> Refreshing...</div>';
+        _loadSaberTimeline(matchId, accountId);
+      }
     });
 
     area.querySelector(".saber-note-cancel").addEventListener("click", () => {
