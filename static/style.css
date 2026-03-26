@@ -2839,12 +2839,12 @@ a.ep-champ-name:hover {
 }
 .rank-tag {
   font-family: var(--font-mono);
-  font-size: 0.6rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  padding: 0.05rem 0.25rem;
-  border-radius: 2px;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
   vertical-align: middle;
-  margin-left: 0.2rem;
+  margin-left: 0.25rem;
 }
 .rank-tag.tier-iron { background: rgba(120,100,90,0.3); color: #8c7961; }
 .rank-tag.tier-bronze { background: rgba(150,100,60,0.3); color: #cd7f32; }

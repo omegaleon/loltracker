@@ -3343,10 +3343,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!p.rank_tier) return "";
     const t = p.rank_tier;
     const d = p.rank_division || "";
-    const tiers = {"IRON":"Ir","BRONZE":"Br","SILVER":"Si","GOLD":"Go","PLATINUM":"Pl","EMERALD":"Em","DIAMOND":"Di","MASTER":"Ma","GRANDMASTER":"GM","CHALLENGER":"Ch"};
-    const divs = {"I":"1","II":"2","III":"3","IV":"4"};
-    const short = (tiers[t] || t) + (d && !["MASTER","GRANDMASTER","CHALLENGER"].includes(t) ? (divs[d] || d) : "");
-    return ` <span class="rank-tag tier-${t.toLowerCase()}" title="${t} ${d}">${short}</span>`;
+    const tierName = t.charAt(0) + t.slice(1).toLowerCase();
+    const divNum = {"I":"1","II":"2","III":"3","IV":"4"}[d] || "";
+    const isApex = ["MASTER","GRANDMASTER","CHALLENGER"].includes(t);
+    const label = isApex ? tierName : `${tierName} ${divNum}`;
+    return ` <span class="rank-tag tier-${t.toLowerCase()}">${label}</span>`;
   }
 
   function renderAlignedPlayerCellHighlighted(p, ver, ownNames, duoMap) {
