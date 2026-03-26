@@ -3339,6 +3339,16 @@ document.addEventListener("DOMContentLoaded", () => {
     return `<a class="${extraClass || ""}" href="${url}" target="_blank" rel="noopener" title="${escHtml(gameName)}#${escHtml(tagLine || "")}">${escHtml(displayName)}</a>`;
   }
 
+  function _rankBadge(p) {
+    if (!p.rank_tier) return "";
+    const t = p.rank_tier;
+    const d = p.rank_division || "";
+    const tiers = {"IRON":"Ir","BRONZE":"Br","SILVER":"Si","GOLD":"Go","PLATINUM":"Pl","EMERALD":"Em","DIAMOND":"Di","MASTER":"Ma","GRANDMASTER":"GM","CHALLENGER":"Ch"};
+    const divs = {"I":"1","II":"2","III":"3","IV":"4"};
+    const short = (tiers[t] || t) + (d && !["MASTER","GRANDMASTER","CHALLENGER"].includes(t) ? (divs[d] || d) : "");
+    return ` <span class="rank-tag tier-${t.toLowerCase()}" title="${t} ${d}">${short}</span>`;
+  }
+
   function renderAlignedPlayerCellHighlighted(p, ver, ownNames, duoMap) {
     const kda = `${p.kills}/${p.deaths}/${p.assists}`;
     const items = [0,1,2,3,4,5,6].map(i => p[`item${i}`] || 0);
@@ -3364,7 +3374,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="ep-champ">
           <img loading="lazy" class="ep-champ-icon" src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${fixChampName(p.champion_name)}.png" alt="" onerror="this.style.display='none'">
           <div class="ep-champ-info">
-            ${_opggLink(p.game_name, p.tag_line, shortName, "ep-champ-name" + (isOwn ? " ep-own-name" : ""))}
+            ${_opggLink(p.game_name, p.tag_line, shortName, "ep-champ-name" + (isOwn ? " ep-own-name" : ""))}${_rankBadge(p)}
             <span class="ep-player-name">${escHtml(p.champion_name)}</span>
             ${duoBadgeHtml}
           </div>
@@ -3974,33 +3984,34 @@ document.addEventListener("DOMContentLoaded", () => {
     html += `<div class="saber-bar">`;
 
     // Objective markers
-    const objIcons = {
-      "DRAGON": '<svg viewBox="0 0 16 16" width="22" height="22"><path d="M8 1L2 6l2 4 4 5 4-5 2-4z" fill="currentColor"/></svg>',
-      "BARON_NASHOR": '<svg viewBox="0 0 16 16" width="22" height="22"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="8" r="2.5" fill="currentColor"/></svg>',
-      "RIFTHERALD": '<svg viewBox="0 0 16 16" width="22" height="22"><path d="M8 2L3 8l5 6 5-6z" fill="currentColor"/></svg>',
-      "TURRET": '<svg viewBox="0 0 16 16" width="22" height="22"><rect x="5" y="2" width="6" height="8" rx="1" fill="currentColor"/><rect x="3" y="10" width="10" height="4" rx="1" fill="currentColor"/></svg>',
-      "INHIBITOR": '<svg viewBox="0 0 16 16" width="22" height="22"><rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor"/></svg>',
+    const cdnBase = "https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons";
+    const objImgs = {
+      "DRAGON": `${cdnBase}/dragon.png`,
+      "BARON_NASHOR": `${cdnBase}/baron.png`,
+      "RIFTHERALD": `${cdnBase}/riftherald.png`,
+      "TURRET": `${cdnBase}/tower.png`,
+      "INHIBITOR": `${cdnBase}/inhibitor.png`,
     };
     objectives.forEach(o => {
       const pct = (o.timestamp / dur * 100).toFixed(1);
-      const icon = objIcons[o.monster] || "";
-      if (icon) {
-        html += `<div class="saber-obj ${o.team}" style="left:${pct}%" title="${o.monster.replace(/_/g, " ")} (${_fmtMs(o.timestamp)})">${icon}</div>`;
+      const img = objImgs[o.monster];
+      if (img) {
+        html += `<div class="saber-obj ${o.team}" style="left:${pct}%" title="${o.monster.replace(/_/g, " ")} (${_fmtMs(o.timestamp)})"><img src="${img}" class="saber-obj-img" onerror="this.style.display='none'"></div>`;
       }
     });
 
-    // Kill markers (sword icon, green)
+    // Kill markers (green circle with sword emoji)
     kills.forEach(k => {
       const pct = (k.timestamp / dur * 100).toFixed(1);
-      html += `<div class="saber-kill" style="left:${pct}%" title="Killed ${k.victim_champ} at ${_fmtMs(k.timestamp)}"><svg viewBox="0 0 12 12" width="16" height="16"><path d="M6 1v7M4 3l2 2 2-2M4 10h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>`;
+      html += `<div class="saber-kill" style="left:${pct}%" title="Killed ${k.victim_champ} at ${_fmtMs(k.timestamp)}">&#x2694;</div>`;
     });
 
-    // Death markers (skull icon, red, clickable)
+    // Death markers (skull in dark circle, clickable)
     deaths.forEach((d, i) => {
       const pct = (d.timestamp / dur * 100).toFixed(1);
       const hasNote = notes[d.timestamp];
       const noteClass = hasNote ? " has-note" : "";
-      html += `<div class="saber-death${noteClass}" style="left:${pct}%" data-idx="${i}" data-ts="${d.timestamp}" title="Killed by ${d.killer_champ} at ${_fmtMs(d.timestamp)}"><svg viewBox="0 0 16 16" width="22" height="22"><circle cx="8" cy="6" r="5" fill="currentColor"/><rect x="4" y="11" width="2" height="3" rx="0.5" fill="currentColor"/><rect x="7" y="11" width="2" height="3" rx="0.5" fill="currentColor"/><rect x="10" y="11" width="2" height="3" rx="0.5" fill="currentColor"/><circle cx="6" cy="5.5" r="1.2" fill="var(--bg-elevated)"/><circle cx="10" cy="5.5" r="1.2" fill="var(--bg-elevated)"/></svg></div>`;
+      html += `<div class="saber-death${noteClass}" style="left:${pct}%" data-idx="${i}" data-ts="${d.timestamp}" title="Killed by ${d.killer_champ} at ${_fmtMs(d.timestamp)}">&#x1F480;</div>`;
     });
 
     html += `</div>`; // end saber-bar

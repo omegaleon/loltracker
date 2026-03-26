@@ -2355,6 +2355,33 @@ def match_detail(match_id):
             )
             p["damage_share"] = round(p.get("damage", 0) / team_dmg * 100)
 
+        # Fetch current ranks for all 10 players (parallelized)
+        def _fetch_rank(puuid):
+            try:
+                entries = _api.get_league_entries_by_puuid(puuid)
+                if entries:
+                    solo = next((e for e in entries if e.get("queueType") == "RANKED_SOLO_5x5"), None)
+                    if solo:
+                        return puuid, solo.get("tier"), solo.get("rank")
+            except Exception:
+                pass
+            return puuid, None, None
+
+        puuids_to_fetch = [p.get("puuid") for p in match.get("participants", []) if p.get("puuid")]
+        rank_map = {}
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(_fetch_rank, pu) for pu in puuids_to_fetch]
+            for f in as_completed(futures):
+                pu, tier, div = f.result()
+                if tier:
+                    rank_map[pu] = {"tier": tier, "rank": div}
+
+        for p in match.get("participants", []):
+            r = rank_map.get(p.get("puuid"))
+            if r:
+                p["rank_tier"] = r["tier"]
+                p["rank_division"] = r["rank"]
+
         # Determine actual winner
         winner = None
         for p in match.get("participants", []):

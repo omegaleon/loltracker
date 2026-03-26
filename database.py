@@ -2268,6 +2268,31 @@ def get_lp_deltas_for_matches(account_id: int, match_game_starts: list) -> dict:
         return result
 
 
+def get_rank_at_time(account_id: int, game_time_str: str) -> dict | None:
+    """Get the rank snapshot closest to (but before) a given game time."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT tier, rank, lp FROM rank_history
+               WHERE account_id = ? AND queue_type = 'RANKED_SOLO_5x5'
+                 AND recorded_at <= ?
+               ORDER BY recorded_at DESC LIMIT 1""",
+            (account_id, game_time_str)
+        ).fetchone()
+        if not row or not row["tier"]:
+            return None
+        return {"tier": row["tier"], "rank": row["rank"], "lp": row["lp"]}
+
+
+def get_tracked_account_by_puuid(puuid: str) -> dict | None:
+    """Get tracked account by puuid, or None if not tracked."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, puuid, game_name FROM accounts WHERE puuid = ?",
+            (puuid,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
 # ---- Saber Death Review ----
 
 def get_cached_timeline(match_id: str) -> str | None:
