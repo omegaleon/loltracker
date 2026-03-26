@@ -3975,26 +3975,33 @@ document.addEventListener("DOMContentLoaded", () => {
     html += `<div class="saber-bar">`;
 
     // Objective markers
+    const objIcons = {
+      "DRAGON": '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 1L2 6l2 4 4 5 4-5 2-4z" fill="currentColor"/></svg>',
+      "BARON_NASHOR": '<svg viewBox="0 0 16 16" width="14" height="14"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="8" r="2.5" fill="currentColor"/></svg>',
+      "RIFTHERALD": '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 2L3 8l5 6 5-6z" fill="currentColor"/></svg>',
+      "TURRET": '<svg viewBox="0 0 16 16" width="14" height="14"><rect x="5" y="2" width="6" height="8" rx="1" fill="currentColor"/><rect x="3" y="10" width="10" height="4" rx="1" fill="currentColor"/></svg>',
+      "INHIBITOR": '<svg viewBox="0 0 16 16" width="14" height="14"><rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor"/></svg>',
+    };
     objectives.forEach(o => {
       const pct = (o.timestamp / dur * 100).toFixed(1);
-      const icon = o.monster === "DRAGON" ? "D" : o.monster === "BARON_NASHOR" ? "B" : o.monster === "RIFTHERALD" ? "H" : o.monster === "TURRET" ? "T" : "";
+      const icon = objIcons[o.monster] || "";
       if (icon) {
         html += `<div class="saber-obj ${o.team}" style="left:${pct}%" title="${o.monster.replace(/_/g, " ")} (${_fmtMs(o.timestamp)})">${icon}</div>`;
       }
     });
 
-    // Kill markers (small, green)
+    // Kill markers (sword icon, green)
     kills.forEach(k => {
       const pct = (k.timestamp / dur * 100).toFixed(1);
-      html += `<div class="saber-kill" style="left:${pct}%" title="Killed ${k.victim_champ} at ${_fmtMs(k.timestamp)}"></div>`;
+      html += `<div class="saber-kill" style="left:${pct}%" title="Killed ${k.victim_champ} at ${_fmtMs(k.timestamp)}"><svg viewBox="0 0 12 12" width="10" height="10"><path d="M6 1v7M4 3l2 2 2-2M4 10h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>`;
     });
 
-    // Death markers (large, red, clickable)
+    // Death markers (skull icon, red, clickable)
     deaths.forEach((d, i) => {
       const pct = (d.timestamp / dur * 100).toFixed(1);
       const hasNote = notes[d.timestamp];
       const noteClass = hasNote ? " has-note" : "";
-      html += `<div class="saber-death${noteClass}" style="left:${pct}%" data-idx="${i}" data-ts="${d.timestamp}" title="Killed by ${d.killer_champ} at ${_fmtMs(d.timestamp)}"></div>`;
+      html += `<div class="saber-death${noteClass}" style="left:${pct}%" data-idx="${i}" data-ts="${d.timestamp}" title="Killed by ${d.killer_champ} at ${_fmtMs(d.timestamp)}"><svg viewBox="0 0 16 16" width="14" height="14"><circle cx="8" cy="6" r="5" fill="currentColor"/><rect x="4" y="11" width="2" height="3" rx="0.5" fill="currentColor"/><rect x="7" y="11" width="2" height="3" rx="0.5" fill="currentColor"/><rect x="10" y="11" width="2" height="3" rx="0.5" fill="currentColor"/><circle cx="6" cy="5.5" r="1.2" fill="var(--bg-elevated)"/><circle cx="10" cy="5.5" r="1.2" fill="var(--bg-elevated)"/></svg></div>`;
     });
 
     html += `</div>`; // end saber-bar
