@@ -378,6 +378,9 @@ def _migrate(conn):
     _add_col(conn, "matches", "is_remake", "BOOLEAN DEFAULT 0")
     # Phase 27: Focus per-account (was per-profile)
     _add_col(conn, "focus_sessions", "account_id", "INTEGER DEFAULT NULL")
+    # Phase 28: Player ranks at game time
+    _add_col(conn, "participants", "rank_tier", "TEXT DEFAULT NULL")
+    _add_col(conn, "participants", "rank_division", "TEXT DEFAULT NULL")
     conn.commit()
 
     # Backfill participant game_name/tag_line from raw_json where missing

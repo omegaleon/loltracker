@@ -744,6 +744,7 @@ def _fetch_and_store_matches(puuid: str, count: int = 20) -> int:
     logger.info("Fetching %d new match details for %s", len(new_ids), puuid[:8])
 
     stored = 0
+    new_match_data = []
     # Fetch new match details in parallel
     workers = min(MAX_WORKERS, len(new_ids))
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -753,11 +754,73 @@ def _fetch_and_store_matches(puuid: str, count: int = 20) -> int:
                 data = future.result()
                 if data:
                     db.store_match(data)
+                    new_match_data.append(data)
                     stored += 1
             except Exception:
                 logger.exception("Failed to fetch/store match")
 
+    # Fetch and store ranks for all participants in new matches (background)
+    if new_match_data:
+        threading.Thread(
+            target=_backfill_participant_ranks,
+            args=(new_match_data,),
+            daemon=True
+        ).start()
+
     return stored
+
+
+def _backfill_participant_ranks(matches: list):
+    """Fetch current ranks for all participants in the given matches and store on participants table."""
+    # Collect unique puuids across all matches
+    puuids = set()
+    for m in matches:
+        for p in m.get("info", {}).get("participants", []):
+            pu = p.get("puuid")
+            if pu:
+                puuids.add(pu)
+
+    if not puuids:
+        return
+
+    def _fetch_rank(puuid):
+        try:
+            entries = _api.get_league_entries_by_puuid(puuid)
+            if entries:
+                solo = next((e for e in entries if e.get("queueType") == "RANKED_SOLO_5x5"), None)
+                if solo:
+                    return puuid, solo.get("tier"), solo.get("rank")
+        except Exception:
+            pass
+        return puuid, None, None
+
+    rank_map = {}
+    w = min(10, len(puuids))
+    with ThreadPoolExecutor(max_workers=w) as executor:
+        futures = [executor.submit(_fetch_rank, pu) for pu in puuids]
+        for f in as_completed(futures):
+            pu, tier, div = f.result()
+            if tier:
+                rank_map[pu] = (tier, div)
+
+    if not rank_map:
+        return
+
+    # Update participants table
+    with db.get_db() as conn:
+        for m in matches:
+            match_id = m.get("metadata", {}).get("matchId", "")
+            for p in m.get("info", {}).get("participants", []):
+                pu = p.get("puuid")
+                r = rank_map.get(pu)
+                if r:
+                    conn.execute(
+                        """UPDATE participants SET rank_tier = ?, rank_division = ?
+                           WHERE match_id = ? AND puuid = ?""",
+                        (r[0], r[1], match_id, pu)
+                    )
+        conn.commit()
+    logger.info("Stored ranks for %d players across %d new matches", len(rank_map), len(matches))
 
 
 def _format_matches(matches: list, version: str) -> list:
@@ -2355,32 +2418,8 @@ def match_detail(match_id):
             )
             p["damage_share"] = round(p.get("damage", 0) / team_dmg * 100)
 
-        # Fetch current ranks for all 10 players (parallelized)
-        def _fetch_rank(puuid):
-            try:
-                entries = _api.get_league_entries_by_puuid(puuid)
-                if entries:
-                    solo = next((e for e in entries if e.get("queueType") == "RANKED_SOLO_5x5"), None)
-                    if solo:
-                        return puuid, solo.get("tier"), solo.get("rank")
-            except Exception:
-                pass
-            return puuid, None, None
-
-        puuids_to_fetch = [p.get("puuid") for p in match.get("participants", []) if p.get("puuid")]
-        rank_map = {}
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(_fetch_rank, pu) for pu in puuids_to_fetch]
-            for f in as_completed(futures):
-                pu, tier, div = f.result()
-                if tier:
-                    rank_map[pu] = {"tier": tier, "rank": div}
-
-        for p in match.get("participants", []):
-            r = rank_map.get(p.get("puuid"))
-            if r:
-                p["rank_tier"] = r["tier"]
-                p["rank_division"] = r["rank"]
+        # Ranks are stored on participants at match ingest time
+        # (rank_tier / rank_division columns — populated by _backfill_participant_ranks)
 
         # Determine actual winner
         winner = None
