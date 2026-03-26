@@ -4996,7 +4996,6 @@ a.ep-champ-name:hover {
   color: var(--accent-bright);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin-left: auto;
   flex-shrink: 0;
 }
 

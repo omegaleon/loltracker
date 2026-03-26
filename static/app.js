@@ -1563,8 +1563,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <span class="match-stat" title="Gold per minute"><span class="sv">${formatK(m.gold)}</span> Gold${pm ? ` <span class="pm">(${formatK(Math.round(m.gold / mins))}/m)</span>` : ""}</span>
             <span class="match-stat" title="Damage per minute"><span class="sv">${formatK(m.damage)}</span> Dmg${pm ? ` <span class="pm">(${formatK(Math.round(m.damage / mins))}/m)</span>` : ""}</span>
             <span class="match-stat"><span class="sv">${m.vision}</span> Vis</span>`; })()}
-            <span class="match-meta">${m.queue_name} · ${m.game_duration_str} · ${m.date_str}</span>
-            ${m.has_notes ? '<span class="match-reviewed-badge" title="Death review notes added">REVIEWED</span>' : ''}
+            <span class="match-meta">${m.queue_name} · ${m.game_duration_str} · ${m.date_str} ${m.has_notes ? '<span class="match-reviewed-badge" title="Death review notes added">REVIEWED</span>' : ''}</span>
             <span class="match-expand-hint">Click to expand</span>
           </div>
         </div>
@@ -4155,6 +4154,21 @@ document.addEventListener("DOMContentLoaded", () => {
       // Re-render entire timeline to show checkbox + pattern bar
       const container = area.closest(".saber-timeline-section");
       if (container) {
+        // Add REVIEWED badge to match row if not already there
+        const panel = container.closest(".match-expand-panel");
+        if (panel) {
+          const matchRow = panel.previousElementSibling;
+          if (matchRow && !matchRow.querySelector(".match-reviewed-badge")) {
+            const meta = matchRow.querySelector(".match-meta");
+            if (meta) {
+              const badge = document.createElement("span");
+              badge.className = "match-reviewed-badge";
+              badge.title = "Death review notes added";
+              badge.textContent = "REVIEWED";
+              meta.appendChild(badge);
+            }
+          }
+        }
         const header = container.querySelector(".saber-header").outerHTML;
         container.innerHTML = header + '<div class="saber-timeline-loading"><span class="spinner-sm"></span> Refreshing...</div>';
         _loadSaberTimeline(matchId, accountId);
